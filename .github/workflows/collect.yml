@@ -1,9 +1,13 @@
 name: 采集黄金实时金价
 
 on:
-  # 只保留「定时」和「手动」两种触发。
-  # 曾经加过 push 触发做连通性冒烟测试，但它会形成开环：push → 触发生成数据提交 →
-  # 下一次 push 被拒 → 又要 rebase，来回打转。要测就用 Actions 页面的 Run workflow。
+  # 【诊断用】只在 workflow 文件自身被改动时触发，用来验证这份文件对 GitHub 是否有效。
+  # 限定 paths，机器人提交数据不会命中，因此不会形成「push ↔ 数据提交」的开环。
+  # 确认定时任务恢复正常后可以删掉这三行。
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collect.yml"
   schedule:
     # 每 15 分钟一次，96 次/天，含周末。
     # ⚠️ 必须和 config.json 的 slot_step_minutes 保持同步，否则采集次数与统计时点对不上。
