@@ -634,16 +634,19 @@ def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="�
     poly = " ".join(f"{x(i):.1f},{y(v):.1f}" for i, _, v in pts)
     parts.append(f'<polyline points="{poly}" fill="none" stroke="{color}" '
                  f'stroke-width="2" stroke-linejoin="round"/>')
+    # 不在图上直接画数值：96 个点时相邻标注会叠在一起糊成一团（2026-10-31 实测），
+    # 改成 data-tip + <title>，鼠标悬停才显示。title 是 JS 失效时的兜底。
     hollow = hollow or []
     for i, lbl, v in pts:
+        tip = f"{lbl} · {v:.2f}"
         if i < len(hollow) and hollow[i]:
             parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="2.8" '
                          f'fill="{CFG_HOLLOW_FILL}" stroke="{color}" stroke-width="1.3" '
-                         f'opacity=".6"/>')
+                         f'opacity=".6" data-tip="{tip}｜沿用值">'
+                         f'<title>{tip}（沿用值）</title></circle>')
             continue
-        parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="3.4" fill="{color}"/>')
-        parts.append(f'<text x="{x(i):.1f}" y="{y(v) - 9:.1f}" class="val" '
-                     f'text-anchor="middle">{v:.2f}</text>')
+        parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="3.4" fill="{color}" '
+                     f'data-tip="{tip}"><title>{tip}</title></circle>')
 
     keep = label_indices([lbl for lbl, _ in points])
     for i, lbl, _ in pts:
@@ -736,14 +739,15 @@ def svg_multiline(labels, series, ref=None, width=760, height=240, unit="元/克
                      f'stroke-width="1.9" stroke-linejoin="round" '
                      f'stroke-linecap="round"/>')
         for i, v in pts:
-            tip = f"{name} {labels[i]}：{v:.2f}"
+            tip = f"{name} {labels[i]} · {v:.2f}"
             if i < len(hollow) and hollow[i]:
                 parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="2.6" '
                              f'fill="#0f1115" stroke="{color}" stroke-width="1.3" '
-                             f'opacity=".65"><title>{tip}（沿用值）</title></circle>')
+                             f'opacity=".65" data-tip="{tip}｜沿用值">'
+                             f'<title>{tip}（沿用值）</title></circle>')
             else:
                 parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="3" '
-                             f'fill="{color}"><title>{tip}</title></circle>')
+                             f'fill="{color}" data-tip="{tip}"><title>{tip}</title></circle>')
 
     keep = label_indices(labels)
     for i, lbl in enumerate(labels):
@@ -801,6 +805,39 @@ REPORT_JS = """<script>
         say('刷新失败：' + e.message + '（用 file:// 打开时无法联网，请改用 http 地址）');
       });
   });
+})();
+</script>
+<script>
+// 折线图数值提示：不再把数字直接画在图上（会重叠），改为悬停浮层。
+// <title> 仍在，JS 失效时浏览器会退化为原生 tooltip。
+(function () {
+  var tip = document.getElementById('tip');
+  if (!tip) return;
+
+  function hide() { tip.classList.remove('show'); }
+
+  document.addEventListener('mouseover', function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'circle' && t.getAttribute('data-tip')) {
+      tip.textContent = t.getAttribute('data-tip');
+      tip.classList.add('show');
+    }
+  });
+  document.addEventListener('mousemove', function (e) {
+    if (!tip.classList.contains('show')) return;
+    // 靠近右/上边缘时翻到另一侧，避免被窗口裁掉
+    var w = tip.offsetWidth, h = tip.offsetHeight;
+    var x = e.clientX + 14, y = e.clientY - h - 12;
+    if (x + w > window.innerWidth - 8) x = e.clientX - w - 14;
+    if (y < 8) y = e.clientY + 16;
+    tip.style.left = x + 'px';
+    tip.style.top = y + 'px';
+  });
+  document.addEventListener('mouseout', function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'circle') hide();
+  });
+  window.addEventListener('scroll', hide, true);
 })();
 </script>"""
 
@@ -1175,6 +1212,12 @@ def build_report():
          font-size:13px;padding:9px 16px;border-radius:8px;transition:.2s;z-index:9;
          max-width:80vw;text-align:center}}
   .toast.show{{opacity:1;transform:translate(-50%,0)}}
+  .tip{{position:fixed;left:0;top:0;pointer-events:none;background:#22262f;
+       border:1px solid var(--line);color:var(--fg);font-size:12px;padding:5px 9px;
+       border-radius:6px;opacity:0;transition:opacity .12s;z-index:20;white-space:nowrap;
+       font-variant-numeric:tabular-nums;box-shadow:0 4px 14px rgba(0,0,0,.45)}}
+  .tip.show{{opacity:1}}
+  .chart circle{{cursor:crosshair}}
   code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px}}
   footer{{color:#6b7280;font-size:12px;margin-top:24px;line-height:1.7}}
 </style></head><body><div class="wrap">
@@ -1190,6 +1233,7 @@ def build_report():
   </div>
 </div>
 <div class="toast" id="toast"></div>
+<div class="tip" id="tip"></div>
 
 <div class="cards">
   <div class="card"><div class="k">实时金价（元/克）</div>
