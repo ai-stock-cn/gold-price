@@ -1,0 +1,56 @@
+name: 发布报表到 Pages
+
+on:
+  # 手动触发：用于首次开启 Pages 或补发一次
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pages.yml"
+      - "report.html"
+  schedule:
+    # 跟采集错开 20 分钟：北京时间 09:20-22:20，每小时一次
+    - cron: "20 1-14 * * 1-5"
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v4
+
+      - name: 配置 Pages（未启用则尝试开启）
+        uses: actions/configure-pages@v5
+        with:
+          # 仓库里的 Pages 站点还没建过时，让这个 action 尝试创建它。
+          # 需要 token 对仓库有管理权限，collaborator 可能被拒 —— 被拒就改由仓库主人
+          # 在 Settings → Pages 里手动开一次（Source: Deploy from a branch, main / root）。
+          enablement: true
+
+      - name: 只用报表本身做站点
+        run: |
+          mkdir -p _site
+          cp report.html _site/index.html
+          echo "站点内容：$(ls -la _site | tail -n +2 | wc -l | tr -d ' ') 个文件，"\
+               "$(wc -c < _site/index.html | tr -d ' ') 字节"
+
+      - name: 上传站点
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: 部署
+        id: deployment
+        uses: actions/deploy-pages@v4
