@@ -14,7 +14,32 @@
 | `data/gold_price.csv` | 分时数据，一行一个时点，只追加。见下方「三种 src」 |
 | `data/sge_extremes.json` | 上金所日线极值：按日期存当日开/收/最高/最低，最多保留 400 个交易日 |
 | `report.html` | 报表，每次采集后自动重写，双击即看 |
-| `data/run.log` | 定时任务运行日志（若用 launchd） |
+| `index.html` | `report.html` 的副本，只为了让 GitHub Pages 在根路径能打开 |
+| `data/smoke.json` | 最近一次运行对两个数据源的探测结果（是否可达、HTTP 码、耗时） |
+| `data/run.log` | 本地运行日志（云端运行时不入库） |
+| `.github/workflows/collect.yml` | 云端定时采集任务 |
+
+## 在哪跑：GitHub Actions
+
+**采集跑在 GitHub 的服务器上，不依赖本机开机，也不依赖任何桌面客户端开着。**
+
+| | |
+|---|---|
+| 触发 | 北京时间 **09:00–22:00 每个整点**（cron `0 1-14 * * 1-5`，UTC） |
+| 时区 | 必须设 `TZ=Asia/Shanghai`——runner 默认 UTC，不设会把 09:00 记成 01:00 |
+| 流程 | 采集 → 生成报表 → 复制 `index.html` → 把新数据 commit 回本仓库 |
+| 报表 | <https://ai-stock-cn.github.io/gold-price/> |
+
+几个云端专属的事实：
+
+- **海外 runner 能连上这两个国内数据源**。2026-10-31 实测：`chnau99999.com` 200 / 2.21s，
+  `sge.com.cn` 200 / 1.53s。担心被墙是多虑的，但网络质量会在 `data/smoke.json` 里持续留痕。
+- **机器人自己提交不会触发下一轮**（GitHub 规定 `GITHUB_TOKEN` 的 push 不触发 workflow），
+  所以不会自激循环。
+- **cron 会漂移**，实测常见延迟几分钟到十几分钟。这不影响正确性：脚本按「已到的最后一个整点」
+  记录，缺的整点由 `fill_today()` 补 `carry` 行。
+- 仓库 **60 天无提交**时 GitHub 会自动停掉定时任务；本项目每天有数据提交，不会触发这条。
+- 想立刻跑一次：仓库 **Actions** → 左侧「采集积存金价格」→ **Run workflow**。
 
 ## 采集时点（工作日 09:00–22:00，每个整点）
 
@@ -53,7 +78,7 @@
 ## 手动跑一次
 
 ```bash
-cd /Users/liubang/Money/黄金
+cd gold-price        # 仓库任意位置，路径无关
 /usr/bin/python3 collect.py             # 采集 + 出报表
 /usr/bin/python3 collect.py --report    # 只重出报表，不采集
 /usr/bin/python3 collect.py --force     # 忽略周末/时段限制
@@ -62,27 +87,23 @@ cd /Users/liubang/Money/黄金
 /usr/bin/python3 collect.py --sync-extremes # 只同步上金所日内开/收/最高/最低，并重建报表
 /usr/bin/python3 collect.py --fill-today    # 不采集，只用最近实采价补齐今天缺失的整点
 /usr/bin/python3 collect.py --no-fill       # 采集但不自动补齐（调试用）
-/usr/bin/python3 push_library.py            # 把报表覆盖推送到资料库（无新数据则跳过）
-/usr/bin/python3 push_library.py --force    # 不管有没有新数据，强制推一次
+/usr/bin/python3 verify_schedule.py         # 排期回归测试（离线、固定时钟、不联网）
 ```
 
-## 自动同步到资料库
+## 已退役：资料库推送与本机 LaunchAgent
 
-每次采集到新数据后，报表会**覆盖**推送到资料库里已有的页面「积存金」，
-节点和链接保持不变，不会每天新增一条：
+2026-10-31 起本项目只跑在 GitHub Actions 上，下面两条链路都停用，保留代码仅为留档。
 
-<https://www.workbuddy.cn/space/d/83kbBfHrVmGJxQT0VnIWfH>
+**资料库推送（`push_library.py`）**——原先把报表覆盖推送到 WorkBuddy 资料库的页面节点。
+它依赖 WorkBuddy 的会话级鉴权（`WORKBUDDY_CONFIG_DIR` + RPC token，纯净环境直接 `E_AUTH_FAILED`），
+**客户端关着就推不了**，这正是要搬走的原因。现在报表改由 GitHub Pages 提供。
 
-- 覆盖靠 `library` skill 的 `page/import_html.py --node-block-id`，node 写在 `config.json` 的 `library.node_block_id`
-- 幂等：以 CSV 最后一条有效记录的 `(ts, slot)` 为指纹，没新数据就不推，重复执行无副作用
-- 推送结果记在 `data/push.log`，上次推送的指纹记在 `data/push_state.json`
-- ⚠️ 指纹只看 CSV 数据有没有变。**改了报表逻辑但数据没变时不会自动推**，
-  这时手动跑一次 `push_library.py --force`
+**本机 LaunchAgent**——原先用 `~/Library/LaunchAgents/com.liubang.goldprice.plist` 准点跑 14 次。
+⚠️ `~/Library/LaunchAgents/` 下的任务**下次登录会被 launchd 自动加载**，会和云端同时写同一份 CSV，
+所以已改名为 `com.liubang.goldprice.plist.disabled` 停用。**不要重新启用**，除非同时停掉云端 workflow。
 
-⚠️ **推送离不开 WorkBuddy 客户端**。资料库接口靠会话级 `WORKBUDDY_CONFIG_DIR`
-+ RPC token 鉴权，实测纯净环境（`env -i`）直接 `E_AUTH_FAILED`。
-所以采集可以由 LaunchAgent 跑，推送只能由应用内定时任务触发 —— **客户端关着就不推**，
-不会假装成功。
+> 双写会带来真实后果：两边各自从自己的 CSV 副本追加，推上去就是合并冲突或互相覆盖，
+> 而 `git pull --rebase` 对同一行的两侧追加会产生冲突块，需要手工解。
 
 ## 漏采怎么办：不留「缺采」，但也不伪造
 
@@ -201,58 +222,32 @@ cd /Users/liubang/Money/黄金
 - 换算沿用 `offset_buy`，与分时估算价同源可比
 - ⚠️ **当日极值由上金所在收盘后提供**，盘中看到的可能只是截至当时的部分区间
 
-## 定时任务：一个 LaunchAgent 管 14 个整点
+## 调度演进：为什么最后是 GitHub Actions
 
-`~/Library/LaunchAgents/com.liubang.goldprice.plist` 里是一个任务、14 个 `StartCalendarInterval` 条目：
+三代方案，按踩过的坑排：
 
-```
-09:00 / 10:00 / 11:00 / 12:00 / 13:00 / 14:00 / 15:00
-16:00 / 17:00 / 18:00 / 19:00 / 20:00 / 21:00 / 22:00      周一至周五
-```
+| 方案 | 问题 |
+|---|---|
+| 应用内 automation（本机） | `FREQ=WEEKLY` 下 `BYHOUR` 只能填**单个整点**；换 `FREQ=HOURLY` 可填多值，但**实际触发时间会漂移**（实测 `13:32`、`14:49`），且**要求客户端开着** |
+| LaunchAgent（本机） | 准点最准，但要求 Mac 开机且已登录；且 `launchctl bootstrap` 屡次返回 `Bootstrap failed: 5`，从未真正跑起来 |
+| **GitHub Actions（现用）** | 不依赖本机任何状态；代价是 cron 也会漂移几分钟，且需要仓库权限 |
 
-周末不过滤，由脚本内的 `weekdays_only` 自行跳过。
-
-启用（任选其一）：
-
-```bash
-# 立刻生效
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.liubang.goldprice.plist
-```
-
-或者**什么都不做**：macOS 在下次登录（重启）时会自动加载 `~/Library/LaunchAgents/` 下的任务。
-
-> ⚠️ **在 LaunchAgent 生效之前，很多整点都是「沿用」值**。
-> 应用内那条 hourly 定时任务的**实际触发时间会漂移**——2026-10-30 实测触发在 `13:32`、`14:49`，
-> 都不是整点。好处是漂移变得不痛：13:40 触发就记到 13:00，不会丢数据；
-> 代价是没被准点采到的整点只能沿用前一个真实报价（灰色 `carry` 行）。
-> 想拿到准点的整点快照，只能让上面的 LaunchAgent 真正加载起来。
-
-检查是否生效：
-
-```bash
-launchctl list | grep goldprice
-tail -n 20 /Users/liubang/Money/黄金/data/run.log
-```
-
-停用：
-
-```bash
-launchctl bootout gui/$(id -u)/com.liubang.goldprice
-```
-
-> 应用内那条定时是 `FREQ=HOURLY;INTERVAL=1;BYDAY=MO~FR;BYHOUR=9..22`，每小时触发一次。
-> 早先以为应用任务写不了多时点——其实是规则：`FREQ=WEEKLY` 下 `BYHOUR` 只能填**单个整点**，
-> 而 `FREQ=HOURLY` 支持多值。所以现在两条链路是互补关系：
-> **launchd 负责准点，应用内任务负责兜底并把报表推送到资料库**（推送依赖客户端，launchd 做不到）。
+三者共同的兜底是同一条：脚本按「**已经到的最后一个整点**」记录，漏掉的整点由 `fill_today()`
+补 `carry` 行，所以单次触发时机不精确不会丢数据，只会多几个灰色沿用点。
 
 ## 已知限制（都写进报表的「数据质量」栏，不藏）
 
 1. **源站不公布更新时间戳**，页面里没有时间字段。程序用「数值连续 N 次不变」来提示可能停更。
 2. 中行价是估算值，实际成交以 App 为准；买卖价差 17 元左右，来回一趟成本不低。
 3. 节假日不判断：中国法定假日休市时脚本照样跑，会记下不变的价格，报表会提示。
-4. 机器休眠会漏采。**漏掉的整点不会显示为「缺采」**——`fill_today()` 会用最近一次真实报价补成
-   `carry` 行，note 记「沿用 HH:MM 报价」，报表里灰色显示。这些值**不是该整点的真实价格**，
-   只用于让曲线连续；日线与收盘价也不用它们。想变成真值，只能在对应整点跑一次采集。
-5. 报表只给数字和相对位置，**不给买卖建议**。
+4. 某个整点没采到（云端是 cron 漂移或 runner 排队，本地是机器休眠）。**漏掉的整点不会显示为「缺采」**——
+   `fill_today()` 会用最近一次真实报价补成 `carry` 行，note 记「沿用 HH:MM 报价」，报表里灰色显示。
+   这些值**不是该整点的真实价格**，只用于让曲线连续；日线与收盘价也不用它们。
+5. 云端跑看不到实时日志：**workflow 运行日志的下载接口需要仓库 admin 权限**，
+   collaborator 拿到的是 403。所以所有诊断信息都主动落盘到 `data/smoke.json`，
+   用仓库文件代替日志。这是刻意的设计，不是遗漏。
+6. GitHub Actions 的 `cron` **不保证准点**，高负载时可能延迟十几分钟甚至跳过某次。
+   单次跳过不影响当天完整性（下次触发会把缺口补成 `carry`），但会多几个沿用点。
+7. 报表只给数字和相对位置，**不给买卖建议**。
 6. 回填数据来自**上金所 Au99.99 基准日线**，不是中行分时报价；换算成「中行价」仍靠同一个标定偏移，
    而一个月前的银行点差未必等于今天，**回溯出的中行价误差可能比实时估算更大**。看趋势可以，别拿它当历史成交凭证。
