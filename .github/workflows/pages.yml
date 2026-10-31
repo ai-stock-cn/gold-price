@@ -16,6 +16,7 @@ on:
       - "index.html"
       - ".nojekyll"
       - ".github/workflows/pages.yml"   # 改了这个文件本身也要重新部署一次
+      - ".github/workflows/pages.yml"   # 改了这个文件本身也要重新部署一次
 
 permissions:
   contents: read
