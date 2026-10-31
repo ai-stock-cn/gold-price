@@ -4,13 +4,18 @@ on:
   # 首次发布/补发时手动点一下
   workflow_dispatch:
   # 每次「采集黄金实时金价」跑完就跟着重新发布，不用另设 cron，天然和数据同步。
-  # ⚠️ 2026-10-31 暂时停用：仓库的 Pages 还没启用，而 collaborator 无权开启，
-  #    这条链每跑一次就红一次（configure-pages 403）。等仓库主人在
-  #    Settings → Pages → Source 选「GitHub Actions」之后，把下面四行放开即可。
-  # workflow_run:
-  #   workflows: ["采集黄金实时金价"]
-  #   types: [completed]
-  #   branches: [main]
+  workflow_run:
+    workflows: ["采集黄金实时金价"]
+    types: [completed]
+    branches: [main]
+  # Actions 模式的 Pages 只能靠 workflow 发布，所以数据一变就重新部署
+  push:
+    branches: [main]
+    paths:
+      - "report.html"
+      - "index.html"
+      - ".nojekyll"
+      - ".github/workflows/pages.yml"   # 改了这个文件本身也要重新部署一次
 
 permissions:
   contents: read
@@ -23,10 +28,13 @@ concurrency:
 
 jobs:
   deploy:
-    # 采集失败时不发布
+    # 两个仓库共用这份文件，但只有 ai-stock-cn 用 Actions 部署；
+    # bang325/gold-price 走分支发布（根目录 index.html），这里直接跳过，避免每次红一条。
+    # 另：采集失败时不发布。
     if: |
-      github.event_name != 'workflow_run' ||
-      github.event.workflow_run.conclusion == 'success'
+      github.repository == 'ai-stock-cn/gold-price' &&
+      (github.event_name != 'workflow_run' ||
+       github.event.workflow_run.conclusion == 'success')
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -37,13 +45,9 @@ jobs:
 
       - name: 配置 Pages
         uses: actions/configure-pages@v5
-        with:
-          # ⚠️ enablement: true 实测会被拒（403）：创建 Pages 站点需要仓库【管理员】权限，
-          # collaborator 的 Write 权限不够。所以站点必须先由仓库主人在设置里开一次：
-          #   Settings → Pages → Source 选「GitHub Actions」
-          # 之后本 workflow 才能正常部署。若主人选的是「Deploy from a branch / main / root」，
-          # 则改用分支发布（仓库根目录的 index.html 会被直接当作站点），本文件可删除。
-          enablement: true
+        # 不要加 enablement: true —— 它需要仓库管理员权限。Pages 由主人开过一次之后，
+        # 这里只做「读取站点元信息」，collaborator 的 Write 权限足够。
+        # 若站点后来被关掉，这一步会报错，届时让主人重新开一次即可。
 
       - name: 只用报表本身做站点
         run: |
