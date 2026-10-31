@@ -52,41 +52,11 @@ jobs:
         run: |
           echo "容器时区: $(date '+%Y-%m-%d %H:%M:%S %A %Z')"
           echo "Python: $(python3 -V)"
-          # 探测两个国内数据源在海外 runner 上是否可达，结果落盘到 data/smoke.json
-          # 目的是能事后检查：GitHub 的 runner 在海外，国内站点有可能连不上。
-          python3 - <<'PY'
-          import json, os, ssl, time, urllib.request, datetime
-
-          def probe(url, data=None, headers=None):
-              t0 = time.time()
-              try:
-                  req = urllib.request.Request(
-                      url, data=data,
-                      headers=headers or {"User-Agent": "Mozilla/5.0"})
-                  with urllib.request.urlopen(req, timeout=25,
-                                              context=ssl.create_default_context()) as r:
-                      body = r.read(400)
-                  return {"ok": True, "code": r.status,
-                          "sec": round(time.time() - t0, 2),
-                          "head": body[:160].decode("utf-8", "ignore")}
-              except Exception as e:
-                  return {"ok": False, "sec": round(time.time() - t0, 2),
-                          "err": f"{type(e).__name__}: {e}"[:200]}
-
-          out = {
-              "at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-              "tz": os.environ.get("TZ"),
-              "source": probe("https://www.chnau99999.com/page/goldPrice"),
-              "sge": probe("https://www.sge.com.cn/graph/Dailyhq",
-                           data=b"instid=Au99.99",
-                           headers={"Content-Type": "application/x-www-form-urlencoded",
-                                    "User-Agent": "Mozilla/5.0"}),
-          }
-          print(json.dumps(out, ensure_ascii=False, indent=1))
-          os.makedirs("data", exist_ok=True)
-          with open("data/smoke.json", "w", encoding="utf-8") as f:
-              json.dump(out, f, ensure_ascii=False, indent=1)
-          PY
+          # 探测两个数据源是否可达，结果写 data/smoke.json。
+          # ⚠️ 探测逻辑放在 Python 里（collect.py --smoke），绝不要在 workflow 里写
+          #    shell heredoc：2026-10-31 实测，一个 `python3 - <<'PY'` 内联块让整份
+          #    workflow 静默失效 —— push 和 schedule 都不再产生任何运行，且无任何报错。
+          python3 collect.py --smoke
 
       - name: 采集并生成报表
         run: |

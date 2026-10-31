@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.error
@@ -227,6 +228,44 @@ def sync_extremes(quiet=False):
     if not quiet:
         log(f"日内极值已同步 {len(trimmed)} 个交易日 → {os.path.basename(EXTREMES_PATH)}")
     return trimmed
+
+
+def smoke():
+    """探测两个数据源是否可达，结果写 data/smoke.json。
+
+    做成 Python 而不是写在 workflow 的 shell heredoc 里：内联 heredoc 极易触发
+    GitHub 的 workflow 校验失败（2026-10-31 实测：一个 heredoc 让整份 workflow
+    静默失效，push 和 schedule 都不再产生任何运行，且没有任何报错提示）。
+    """
+    def probe(url, data=None, headers=None):
+        t0 = time.time()
+        try:
+            req = urllib.request.Request(url, data=data,
+                                         headers=headers or {"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=25,
+                                        context=ssl.create_default_context()) as r:
+                body = r.read(400)
+            return {"ok": True, "code": r.status,
+                    "sec": round(time.time() - t0, 2),
+                    "head": body[:160].decode("utf-8", "ignore")}
+        except Exception as e:  # noqa: BLE001
+            return {"ok": False, "sec": round(time.time() - t0, 2),
+                    "err": f"{type(e).__name__}: {e}"[:200]}
+
+    out = {
+        "at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "tz": os.environ.get("TZ"),
+        "source": probe(CFG["source"]["url"]),
+        "sge": probe(SGE_URL, data=b"instid=Au99.99",
+                     headers={"Content-Type": "application/x-www-form-urlencoded",
+                              "User-Agent": UA}),
+    }
+    print(json.dumps(out, ensure_ascii=False, indent=1))
+    path = os.path.join(BASE, "data", "smoke.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False, indent=1)
+    return out
 
 
 def extreme_rows(n=15):
@@ -1306,11 +1345,17 @@ def main():
                     help="用上金所日线回填过去 N 个自然日的标准时点（不含今天）")
     ap.add_argument("--sync-extremes", action="store_true",
                     help="只同步上金所日内开/收/最高/最低并重建报表，不做分时采集")
+    ap.add_argument("--smoke", action="store_true",
+                    help="只探测两个数据源的连通性，结果写 data/smoke.json，不采集")
     ap.add_argument("--fill-today", action="store_true",
                     help="不采集，只把今天缺失的时点用最近一条真实样本补齐并重建报表")
     ap.add_argument("--no-fill", action="store_true",
                     help="采集后不自动补齐今日缺失时点")
     args = ap.parse_args()
+
+    if args.smoke:
+        smoke()
+        return 0
 
     migrate_csv()
     if args.backfill:
