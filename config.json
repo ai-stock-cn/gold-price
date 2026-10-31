@@ -9,8 +9,8 @@
       "accessories": "饰品金价"
     }
   },
-  "_slots_note": "slots 由 slot_step_minutes 生成，不在配置里逐条列出。5 分钟 → 288 个整点；改成 15 就是 96 个，代码自适应。",
-  "slot_step_minutes": 5,
+  "_slots_note": "slots 由 slot_step_minutes 生成，不在配置里逐条列出。15 分钟 → 96 个时点；改成 5 就是 288 个，代码自适应。",
+  "slot_step_minutes": 15,
   "slot_names": {
     "00:00": "午夜",
     "06:00": "早间",
