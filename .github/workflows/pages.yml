@@ -1,16 +1,13 @@
 name: 发布报表到 Pages
 
 on:
-  # 手动触发：用于首次开启 Pages 或补发一次
+  # 首次发布/补发时手动点一下
   workflow_dispatch:
-  push:
+  # 每次「采集积存金价格」跑完就跟着重新发布，不用另设 cron，天然和数据同步
+  workflow_run:
+    workflows: ["采集积存金价格"]
+    types: [completed]
     branches: [main]
-    paths:
-      - ".github/workflows/pages.yml"
-      - "report.html"
-  schedule:
-    # 跟采集错开 20 分钟：北京时间 09:20-22:20，每小时一次
-    - cron: "20 1-14 * * 1-5"
 
 permissions:
   contents: read
@@ -23,6 +20,10 @@ concurrency:
 
 jobs:
   deploy:
+    # 采集失败时不发布
+    if: |
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -31,12 +32,14 @@ jobs:
       - name: 拉取仓库
         uses: actions/checkout@v4
 
-      - name: 配置 Pages（未启用则尝试开启）
+      - name: 配置 Pages
         uses: actions/configure-pages@v5
         with:
-          # 仓库里的 Pages 站点还没建过时，让这个 action 尝试创建它。
-          # 需要 token 对仓库有管理权限，collaborator 可能被拒 —— 被拒就改由仓库主人
-          # 在 Settings → Pages 里手动开一次（Source: Deploy from a branch, main / root）。
+          # ⚠️ enablement: true 实测会被拒（403）：创建 Pages 站点需要仓库【管理员】权限，
+          # collaborator 的 Write 权限不够。所以站点必须先由仓库主人在设置里开一次：
+          #   Settings → Pages → Source 选「GitHub Actions」
+          # 之后本 workflow 才能正常部署。若主人选的是「Deploy from a branch / main / root」，
+          # 则改用分支发布（仓库根目录的 index.html 会被直接当作站点），本文件可删除。
           enablement: true
 
       - name: 只用报表本身做站点
