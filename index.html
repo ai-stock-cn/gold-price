@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>积存金价格报表 · 2026-10-30</title>
+<style>
+  :root{--bg:#0f1115;--panel:#171a21;--panel2:#1d212a;--line:#252a34;
+        --fg:#e9eaee;--muted:#98a0ad;--gold:#e0b354;--up:#e5484d;--down:#2f9e68;}
+  *{box-sizing:border-box}
+  body{margin:0;padding:28px 20px 48px;background:var(--bg);color:var(--fg);
+       font:15px/1.65 -apple-system,"PingFang SC","Helvetica Neue",Arial,sans-serif;}
+  .wrap{max-width:860px;margin:0 auto}
+  h1{font-size:19px;margin:0 0 4px;font-weight:600;letter-spacing:.3px}
+  .sub{color:var(--muted);font-size:13px;margin-bottom:22px}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+  .card .k{color:var(--muted);font-size:12px;letter-spacing:.4px}
+  .card .v{font-size:26px;font-weight:600;margin-top:4px;font-variant-numeric:tabular-nums}
+  .card .d{font-size:12.5px;color:var(--muted);margin-top:4px}
+  .up{color:var(--up)} .down{color:var(--down)} .muted{color:var(--muted)}
+  section{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+          padding:16px 18px;margin-bottom:16px}
+  h2{font-size:14px;margin:0 0 12px;font-weight:600;color:var(--gold);letter-spacing:.4px}
+  .chart{width:100%;height:auto;display:block}
+  .ax{fill:var(--muted);font-size:11px}
+  .ax.ref{fill:#b08d3f}
+  .val{fill:var(--fg);font-size:11px}
+  table{width:100%;border-collapse:collapse;font-size:13.5px}
+  th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--muted);font-weight:500;font-size:12px}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  td.strong{color:var(--gold);font-weight:600}
+  tr.miss td{color:#6b7280}
+  tr.carry td{color:#7f8797;background:#141821}
+  tr.extra td{background:#1a1e26}
+  tr.hit td{background:#16301f}
+  .tag{background:#1f3a2b;color:#67d3a6;font-size:11px;padding:1px 5px;border-radius:4px}
+  tr:last-child td{border-bottom:none}
+  ul{margin:0;padding-left:18px;color:#c3c8d2;font-size:13.5px}
+  li{margin:6px 0}
+  .empty{color:var(--muted);font-size:13px;padding:22px 0;text-align:center}
+  .hint{color:var(--muted);font-size:12px;margin:-6px 0 10px}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 16px;margin:0 0 10px;
+          font-size:12px;color:var(--muted)}
+  .legend .lg{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:9px;height:9px;border-radius:2px;display:inline-block}
+  .legend b{color:var(--fg);font-weight:600;font-variant-numeric:tabular-nums}
+  details{margin-top:12px;border-top:1px solid var(--line);padding-top:6px}
+  summary{color:var(--muted);font-size:12.5px;cursor:pointer;padding:4px 0}
+  summary:hover{color:var(--fg)}
+  code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px}
+  footer{color:#6b7280;font-size:12px;margin-top:24px;line-height:1.7}
+</style></head><body><div class="wrap">
+<h1>积存金价格报表</h1>
+<div class="sub">数据日 2026-10-30 · 生成于 2026-10-31 08:47 ·
+来源 中国黄金销售终端报价（chnau99999.com）</div>
+
+<div class="cards">
+  <div class="card"><div class="k">估算中行买入价（你买入）</div>
+    <div class="v">871.13</div>
+    <div class="d">最近一次 · 基准 854.50</div></div>
+  <div class="card"><div class="k">估算中行卖出价（你卖出）</div>
+    <div class="v">853.53</div>
+    <div class="d">买卖价差 17.60 元/克</div></div>
+  <div class="card"><div class="k">今日较首点</div>
+    <div class="v muted"> —</div>
+    <div class="d">— · 首点 —</div></div>
+  <div class="card"><div class="k">较上一交易日</div>
+    <div class="v up">▲ 14.00</div>
+    <div class="d">+1.63% · 上日收盘 857.13</div></div>
+  <div class="card"><div class="k">距目标 850.00</div>
+    <div class="v up">21.13</div>
+    <div class="d">仍高于目标，
+      50 克差额 1,056.50 元</div></div>
+  <div class="card"><div class="k">今日日内最低（估算买入）</div>
+    <div class="v ">—</div>
+    <div class="d">今日尚无极值记录（收盘后自动补齐）</div></div>
+</div>
+
+<section><h2>今日分时（尚未采集）</h2>
+<div class="hint">横轴固定为 <b>09:00 ~ 22:00</b> 的每一个整点。
+金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该整点没采到、按最近一次实采价沿用的填充值（不标数值）。</div>
+<div class="empty">点数不足 2 个，暂不绘图。等积累到多个时点后自动出现。</div></section>
+
+<section><h2>近 18 个交易日 · 日线（当天最后一个采集点即收盘价）</h2>
+<div class="hint">每天<b>最后一个采集点</b>作为当日收盘价，漏掉的中间时点会被下一次采集自动补齐；采到 <b>22:00</b> 尾盘即视为定盘，此前用最新一条并标 <b>~</b> · 带 * 的日期为日线回溯（收盘价），非分时实采</div>
+<svg viewBox="0 0 760 200" class="chart" preserveAspectRatio="xMidYMid meet" role="img"><line x1="58" y1="170.0" x2="744" y2="170.0" stroke="#252a34" stroke-width="1"/><text x="50" y="174.0" class="ax" text-anchor="end">845.10</text><line x1="58" y1="118.7" x2="744" y2="118.7" stroke="#252a34" stroke-width="1"/><text x="50" y="122.7" class="ax" text-anchor="end">875.39</text><line x1="58" y1="67.3" x2="744" y2="67.3" stroke="#252a34" stroke-width="1"/><text x="50" y="71.3" class="ax" text-anchor="end">905.69</text><line x1="58" y1="16.0" x2="744" y2="16.0" stroke="#252a34" stroke-width="1"/><text x="50" y="20.0" class="ax" text-anchor="end">935.98</text><line x1="58" y1="161.7" x2="744" y2="161.7" stroke="#7a6440" stroke-width="1.2" stroke-dasharray="5 4"/><text x="744" y="155.7" class="ax ref" text-anchor="end">目标 850.00</text><polyline points="58.0,36.4 98.4,62.3 138.7,41.2 179.1,43.9 219.4,41.2 259.8,58.1 300.1,60.7 340.5,46.1 380.8,47.3 421.2,66.1 461.5,70.0 501.9,82.2 542.2,109.8 582.6,114.2 622.9,116.0 663.3,101.3 703.6,107.7 744.0,149.6" fill="none" stroke="#e0b354" stroke-width="2" stroke-linejoin="round"/><circle cx="58.0" cy="36.4" r="3.4" fill="#e0b354"/><text x="58.0" y="27.4" class="val" text-anchor="middle">923.95</text><circle cx="98.4" cy="62.3" r="3.4" fill="#e0b354"/><text x="98.4" y="53.3" class="val" text-anchor="middle">908.63</text><circle cx="138.7" cy="41.2" r="3.4" fill="#e0b354"/><text x="138.7" y="32.2" class="val" text-anchor="middle">921.11</text><circle cx="179.1" cy="43.9" r="3.4" fill="#e0b354"/><text x="179.1" y="34.9" class="val" text-anchor="middle">919.53</text><circle cx="219.4" cy="41.2" r="3.4" fill="#e0b354"/><text x="219.4" y="32.2" class="val" text-anchor="middle">921.08</text><circle cx="259.8" cy="58.1" r="3.4" fill="#e0b354"/><text x="259.8" y="49.1" class="val" text-anchor="middle">911.13</text><circle cx="300.1" cy="60.7" r="3.4" fill="#e0b354"/><text x="300.1" y="51.7" class="val" text-anchor="middle">909.59</text><circle cx="340.5" cy="46.1" r="3.4" fill="#e0b354"/><text x="340.5" y="37.1" class="val" text-anchor="middle">918.20</text><circle cx="380.8" cy="47.3" r="3.4" fill="#e0b354"/><text x="380.8" y="38.3" class="val" text-anchor="middle">917.52</text><circle cx="421.2" cy="66.1" r="3.4" fill="#e0b354"/><text x="421.2" y="57.1" class="val" text-anchor="middle">906.41</text><circle cx="461.5" cy="70.0" r="3.4" fill="#e0b354"/><text x="461.5" y="61.0" class="val" text-anchor="middle">904.13</text><circle cx="501.9" cy="82.2" r="3.4" fill="#e0b354"/><text x="501.9" y="73.2" class="val" text-anchor="middle">896.93</text><circle cx="542.2" cy="109.8" r="3.4" fill="#e0b354"/><text x="542.2" y="100.8" class="val" text-anchor="middle">880.63</text><circle cx="582.6" cy="114.2" r="3.4" fill="#e0b354"/><text x="582.6" y="105.2" class="val" text-anchor="middle">878.04</text><circle cx="622.9" cy="116.0" r="3.4" fill="#e0b354"/><text x="622.9" y="107.0" class="val" text-anchor="middle">876.94</text><circle cx="663.3" cy="101.3" r="3.4" fill="#e0b354"/><text x="663.3" y="92.3" class="val" text-anchor="middle">885.62</text><circle cx="703.6" cy="107.7" r="3.4" fill="#e0b354"/><text x="703.6" y="98.7" class="val" text-anchor="middle">881.89</text><circle cx="744.0" cy="149.6" r="3.4" fill="#e0b354"/><text x="744.0" y="140.6" class="val" text-anchor="middle">857.13</text><text x="58.0" y="192" class="ax" text-anchor="middle">09-30*</text><text x="138.7" y="192" class="ax" text-anchor="middle">10-09*</text><text x="219.4" y="192" class="ax" text-anchor="middle">10-13*</text><text x="300.1" y="192" class="ax" text-anchor="middle">10-15*</text><text x="380.8" y="192" class="ax" text-anchor="middle">10-19*</text><text x="461.5" y="192" class="ax" text-anchor="middle">10-21*</text><text x="542.2" y="192" class="ax" text-anchor="middle">10-23*</text><text x="622.9" y="192" class="ax" text-anchor="middle">10-27*</text><text x="703.6" y="192" class="ax" text-anchor="middle">10-29*</text><text x="744.0" y="192" class="ax" text-anchor="middle">10-30</text><text x="58" y="14" class="ax">元/克</text></svg></section>
+
+<section><h2>日内极值 · 近 15 个交易日</h2>
+<div class="hint">取自上海黄金交易所 Au99.99 日线，是当天<b>真实触及过</b>的最低/最高价，已换算为估算中行买入价。它比每小时若干次采样可靠——哪怕低点只闪了一分钟也会留痕。<br>
+灰带＝当日<b>最低~最高</b>的波动区间，带子越宽当天波动越大；虚线为 850.00 目标价。鼠标悬停任一点可看数值。<br>
+（上金所日线与本表统计口径不同步，极端情况下可能出现「当前价低于今日日内最低」，以本表的日线口径为准。）<b>2026-10-30</b> 是近 15 个交易日里日内最低的一天：<b>870.13</b> 元/克，距目标 <b>+20.13</b> 元。</div>
+<div class="legend"><span class="lg"><i style="background:#2f9e68"></i>日内最低 <b>870.13</b></span><span class="lg"><i style="background:#e5484d"></i>日内最高 <b>883.63</b></span><span class="lg"><i style="background:#e0b354"></i>日线收盘 <b>871.39</b></span></div><svg viewBox="0 0 760 240" class="chart" preserveAspectRatio="xMidYMid meet" role="img"><line x1="58" y1="210.0" x2="744" y2="210.0" stroke="#252a34" stroke-width="1"/><text x="50" y="214.0" class="ax" text-anchor="end">859.62</text><line x1="58" y1="145.3" x2="744" y2="145.3" stroke="#252a34" stroke-width="1"/><text x="50" y="149.3" class="ax" text-anchor="end">886.09</text><line x1="58" y1="80.7" x2="744" y2="80.7" stroke="#252a34" stroke-width="1"/><text x="50" y="84.7" class="ax" text-anchor="end">912.57</text><line x1="58" y1="16.0" x2="744" y2="16.0" stroke="#252a34" stroke-width="1"/><text x="50" y="20.0" class="ax" text-anchor="end">939.04</text><text x="744" y="26" class="ax ref" text-anchor="end">目标 850.00（低于本图范围）</text><polygon points="58.0,41.7 107.0,55.4 156.0,58.5 205.0,73.2 254.0,65.9 303.0,61.0 352.0,75.6 401.0,75.7 450.0,92.7 499.0,109.9 548.0,136.7 597.0,148.9 646.0,136.7 695.0,134.7 744.0,151.3 744.0,184.3 695.0,161.0 646.0,168.0 597.0,173.3 548.0,180.7 499.0,178.2 450.0,134.2 401.0,110.4 352.0,104.9 303.0,85.4 254.0,87.8 205.0,119.6 156.0,85.4 107.0,80.5 58.0,70.7" fill="#8b949e" opacity=".12"/><polyline points="58.0,70.7 107.0,80.5 156.0,85.4 205.0,119.6 254.0,87.8 303.0,85.4 352.0,104.9 401.0,110.4 450.0,134.2 499.0,178.2 548.0,180.7 597.0,173.3 646.0,168.0 695.0,161.0 744.0,184.3" fill="none" stroke="#2f9e68" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/><circle cx="58.0" cy="70.7" r="3" fill="#2f9e68"><title>日内最低 10-12：916.63</title></circle><circle cx="107.0" cy="80.5" r="3" fill="#2f9e68"><title>日内最低 10-13：912.63</title></circle><circle cx="156.0" cy="85.4" r="3" fill="#2f9e68"><title>日内最低 10-14：910.63</title></circle><circle cx="205.0" cy="119.6" r="3" fill="#2f9e68"><title>日内最低 10-15：896.63</title></circle><circle cx="254.0" cy="87.8" r="3" fill="#2f9e68"><title>日内最低 10-16：909.63</title></circle><circle cx="303.0" cy="85.4" r="3" fill="#2f9e68"><title>日内最低 10-19：910.63</title></circle><circle cx="352.0" cy="104.9" r="3" fill="#2f9e68"><title>日内最低 10-20：902.63</title></circle><circle cx="401.0" cy="110.4" r="3" fill="#2f9e68"><title>日内最低 10-21：900.38</title></circle><circle cx="450.0" cy="134.2" r="3" fill="#2f9e68"><title>日内最低 10-22：890.65</title></circle><circle cx="499.0" cy="178.2" r="3" fill="#2f9e68"><title>日内最低 10-23：872.64</title></circle><circle cx="548.0" cy="180.7" r="3" fill="#2f9e68"><title>日内最低 10-26：871.63</title></circle><circle cx="597.0" cy="173.3" r="3" fill="#2f9e68"><title>日内最低 10-27：874.63</title></circle><circle cx="646.0" cy="168.0" r="3" fill="#2f9e68"><title>日内最低 10-28：876.83</title></circle><circle cx="695.0" cy="161.0" r="3" fill="#2f9e68"><title>日内最低 10-29：879.68</title></circle><circle cx="744.0" cy="184.3" r="3" fill="#2f9e68"><title>日内最低 10-30：870.13</title></circle><polyline points="58.0,41.7 107.0,55.4 156.0,58.5 205.0,73.2 254.0,65.9 303.0,61.0 352.0,75.6 401.0,75.7 450.0,92.7 499.0,109.9 548.0,136.7 597.0,148.9 646.0,136.7 695.0,134.7 744.0,151.3" fill="none" stroke="#e5484d" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/><circle cx="58.0" cy="41.7" r="3" fill="#e5484d"><title>日内最高 10-12：928.53</title></circle><circle cx="107.0" cy="55.4" r="3" fill="#e5484d"><title>日内最高 10-13：922.93</title></circle><circle cx="156.0" cy="58.5" r="3" fill="#e5484d"><title>日内最高 10-14：921.63</title></circle><circle cx="205.0" cy="73.2" r="3" fill="#e5484d"><title>日内最高 10-15：915.63</title></circle><circle cx="254.0" cy="65.9" r="3" fill="#e5484d"><title>日内最高 10-16：918.63</title></circle><circle cx="303.0" cy="61.0" r="3" fill="#e5484d"><title>日内最高 10-19：920.62</title></circle><circle cx="352.0" cy="75.6" r="3" fill="#e5484d"><title>日内最高 10-20：914.63</title></circle><circle cx="401.0" cy="75.7" r="3" fill="#e5484d"><title>日内最高 10-21：914.62</title></circle><circle cx="450.0" cy="92.7" r="3" fill="#e5484d"><title>日内最高 10-22：907.63</title></circle><circle cx="499.0" cy="109.9" r="3" fill="#e5484d"><title>日内最高 10-23：900.61</title></circle><circle cx="548.0" cy="136.7" r="3" fill="#e5484d"><title>日内最高 10-26：889.62</title></circle><circle cx="597.0" cy="148.9" r="3" fill="#e5484d"><title>日内最高 10-27：884.63</title></circle><circle cx="646.0" cy="136.7" r="3" fill="#e5484d"><title>日内最高 10-28：889.63</title></circle><circle cx="695.0" cy="134.7" r="3" fill="#e5484d"><title>日内最高 10-29：890.43</title></circle><circle cx="744.0" cy="151.3" r="3" fill="#e5484d"><title>日内最高 10-30：883.63</title></circle><polyline points="58.0,63.7 107.0,59.9 156.0,84.2 205.0,87.9 254.0,66.9 303.0,68.6 352.0,95.7 401.0,101.3 450.0,118.9 499.0,158.7 548.0,165.0 597.0,167.7 646.0,146.5 695.0,155.6 744.0,181.2" fill="none" stroke="#e0b354" stroke-width="1.9" stroke-linejoin="round" stroke-linecap="round"/><circle cx="58.0" cy="63.7" r="3" fill="#e0b354"><title>日线收盘 10-12：919.53</title></circle><circle cx="107.0" cy="59.9" r="3" fill="#e0b354"><title>日线收盘 10-13：921.08</title></circle><circle cx="156.0" cy="84.2" r="3" fill="#e0b354"><title>日线收盘 10-14：911.13</title></circle><circle cx="205.0" cy="87.9" r="3" fill="#e0b354"><title>日线收盘 10-15：909.59</title></circle><circle cx="254.0" cy="66.9" r="3" fill="#e0b354"><title>日线收盘 10-16：918.20</title></circle><circle cx="303.0" cy="68.6" r="3" fill="#e0b354"><title>日线收盘 10-19：917.52</title></circle><circle cx="352.0" cy="95.7" r="3" fill="#e0b354"><title>日线收盘 10-20：906.41</title></circle><circle cx="401.0" cy="101.3" r="3" fill="#e0b354"><title>日线收盘 10-21：904.13</title></circle><circle cx="450.0" cy="118.9" r="3" fill="#e0b354"><title>日线收盘 10-22：896.93</title></circle><circle cx="499.0" cy="158.7" r="3" fill="#e0b354"><title>日线收盘 10-23：880.63</title></circle><circle cx="548.0" cy="165.0" r="3" fill="#e0b354"><title>日线收盘 10-26：878.04</title></circle><circle cx="597.0" cy="167.7" r="3" fill="#e0b354"><title>日线收盘 10-27：876.94</title></circle><circle cx="646.0" cy="146.5" r="3" fill="#e0b354"><title>日线收盘 10-28：885.62</title></circle><circle cx="695.0" cy="155.6" r="3" fill="#e0b354"><title>日线收盘 10-29：881.89</title></circle><circle cx="744.0" cy="181.2" r="3" fill="#e0b354"><title>日线收盘 10-30：871.39</title></circle><text x="58.0" y="232" class="ax" text-anchor="middle">10-12</text><text x="156.0" y="232" class="ax" text-anchor="middle">10-14</text><text x="254.0" y="232" class="ax" text-anchor="middle">10-16</text><text x="352.0" y="232" class="ax" text-anchor="middle">10-20</text><text x="450.0" y="232" class="ax" text-anchor="middle">10-22</text><text x="548.0" y="232" class="ax" text-anchor="middle">10-26</text><text x="646.0" y="232" class="ax" text-anchor="middle">10-28</text><text x="744.0" y="232" class="ax" text-anchor="middle">10-30</text><text x="58" y="14" class="ax">元/克</text></svg>
+<details><summary>展开逐日数值表（最低 / 最高 / 收盘 / 距目标）</summary>
+<table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th><th style="text-align:right">最低距目标</th></tr></thead>
+<tbody><tr><td>2026-10-30</td><td class="num strong">870.13</td><td class="num">883.63</td><td class="num">871.39</td><td class="num muted">20.13</td></tr><tr><td>2026-10-29</td><td class="num strong">879.68</td><td class="num">890.43</td><td class="num">881.89</td><td class="num muted">29.68</td></tr><tr><td>2026-10-28</td><td class="num strong">876.83</td><td class="num">889.63</td><td class="num">885.62</td><td class="num muted">26.83</td></tr><tr><td>2026-10-27</td><td class="num strong">874.63</td><td class="num">884.63</td><td class="num">876.94</td><td class="num muted">24.63</td></tr><tr><td>2026-10-26</td><td class="num strong">871.63</td><td class="num">889.62</td><td class="num">878.04</td><td class="num muted">21.63</td></tr><tr><td>2026-10-23</td><td class="num strong">872.64</td><td class="num">900.61</td><td class="num">880.63</td><td class="num muted">22.64</td></tr><tr><td>2026-10-22</td><td class="num strong">890.65</td><td class="num">907.63</td><td class="num">896.93</td><td class="num muted">40.65</td></tr><tr><td>2026-10-21</td><td class="num strong">900.38</td><td class="num">914.62</td><td class="num">904.13</td><td class="num muted">50.38</td></tr><tr><td>2026-10-20</td><td class="num strong">902.63</td><td class="num">914.63</td><td class="num">906.41</td><td class="num muted">52.63</td></tr><tr><td>2026-10-19</td><td class="num strong">910.63</td><td class="num">920.62</td><td class="num">917.52</td><td class="num muted">60.63</td></tr><tr><td>2026-10-16</td><td class="num strong">909.63</td><td class="num">918.63</td><td class="num">918.20</td><td class="num muted">59.63</td></tr><tr><td>2026-10-15</td><td class="num strong">896.63</td><td class="num">915.63</td><td class="num">909.59</td><td class="num muted">46.63</td></tr><tr><td>2026-10-14</td><td class="num strong">910.63</td><td class="num">921.63</td><td class="num">911.13</td><td class="num muted">60.63</td></tr><tr><td>2026-10-13</td><td class="num strong">912.63</td><td class="num">922.93</td><td class="num">921.08</td><td class="num muted">62.63</td></tr><tr><td>2026-10-12</td><td class="num strong">916.63</td><td class="num">928.53</td><td class="num">919.53</td><td class="num muted">66.63</td></tr></tbody></table></details></section>
+
+<section><h2>今日明细 · 09:00 ~ 22:00 逐小时</h2>
+<div class="hint">三条线共用纵轴：金色<b>估算买入</b>、蓝色<b>估算卖出</b>、灰色<b>基准金价</b>。
+卖出与基准只差 0.97 的点差，两条线几乎重合属正常。<br>
+<b>实心点</b>＝该整点真实采集；<b>空心点</b>＝没采到、按最近一次实采价沿用，<b>不是该时点的真实价格</b>。鼠标悬停看数值。</div>
+<div class="empty">今天还没有采集到数据，首次采集后这里自动出现曲线。</div>
+<details><summary>展开逐时点数值表（含来源与较上点）</summary>
+<table><thead><tr><th>时点</th><th>名称</th><th style="text-align:right">基准金价</th>
+<th style="text-align:right">估算买入</th><th style="text-align:right">估算卖出</th>
+<th style="text-align:right">较上点</th><th style="text-align:right">来源</th></tr></thead>
+<tbody><tr class="miss"><td>09:00</td><td>开盘</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>10:00</td><td>上午</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>11:00</td><td>上午</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>12:00</td><td>午间</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>13:00</td><td>午后</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>14:00</td><td>尾盘前</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>15:00</td><td>收盘</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>16:00</td><td>盘后</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>17:00</td><td>盘后</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>18:00</td><td>晚间</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>19:00</td><td>晚间</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>20:00</td><td>银行截止</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>21:00</td><td>夜间</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr><tr class="miss"><td>22:00</td><td>夜间收尾</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num">—</td></tr></tbody></table></details></section>
+
+<section><h2>数据质量与说明</h2><ul><li>历史区段含 <b>51</b> 行日线回溯数据（共 17 个交易日），取自上海黄金交易所 Au99.99 日线：首点为当日<b>开盘</b>，其余时点为当日<b>收盘</b>。这些点<b>不是分时实采</b>，同一天各时点数值相同属正常（均为当日收盘价），勿读作「当天价格没动」。图中带 <b>*</b> 的日期即回溯日。</li><li>「日内极值」取自上海黄金交易所 Au99.99 日线，换算沿用同一偏移 +16.63，与分时估算价同源可比；今日暂无极值数据，收盘后自动补齐。</li><li>中行报价为<b>估算值</b>，依据 2026-10-30 10:54 的标定（买入 874.33 / 卖出 856.73，源站基准 857.70）。银行调整加点后需重新标定。</li></ul></section>
+
+<footer>
+价格来源：https://www.chnau99999.com/page/board（公开报价接口，仅工作日，09:00~22:00 逐小时采集，共 14 个时点）。<br>
+中行积存金价为本程序按标定偏移<b>估算</b>，并非中国银行官方报价；实际成交价、点差与提金费用以中行 App 与柜面为准。<br>
+本报表仅供个人记录与复盘，不构成投资建议，也不保证数据源持续可用或数值准确。
+</footer>
+</div></body></html>
