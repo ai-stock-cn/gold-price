@@ -1,0 +1,83 @@
+name: 采集积存金价格
+
+on:
+  schedule:
+    # 北京时间 09:00-22:00 每小时整点一次 = UTC 01:00-14:00
+    # 周一到周五（UTC 与 CST 在这个时段内同属一天，星期对齐）
+    - cron: "0 1-14 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "忽略周末与时段判断，强制采集一次（用于测试源站连通性）"
+        type: boolean
+        default: false
+
+# 需要把新数据提交回仓库
+permissions:
+  contents: write
+
+# 上一轮没跑完就别开新的，避免两个 job 同时改 CSV 产生冲突
+concurrency:
+  group: gold-collect
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      # 关键：脚本用 datetime.now() / date.today() 判断时点，
+      # runner 默认 UTC，不设这个会把 09:00 记成 01:00。
+      TZ: Asia/Shanghai
+
+    steps:
+      - name: 拉取仓库
+        uses: actions/checkout@v4
+
+      - name: 准备 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 环境自检
+        run: |
+          echo "容器时区: $(date '+%Y-%m-%d %H:%M:%S %A %Z')"
+          echo "Python: $(python3 -V)"
+          echo "--- 源站连通性 ---"
+          curl -s -o /dev/null -m 20 -w "chnau99999.com HTTP %{http_code}  耗时 %{time_total}s\n" \
+            https://www.chnau99999.com/page/goldPrice || echo "源站不可达"
+          curl -s -o /dev/null -m 20 -X POST \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data "instid=Au99.99" \
+            -w "sge.com.cn HTTP %{http_code}  耗时 %{time_total}s\n" \
+            https://www.sge.com.cn/graph/Dailyhq || echo "上金所不可达"
+
+      - name: 采集并生成报表
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then
+            echo "强制模式"
+            python3 collect.py --force --auto
+          else
+            python3 collect.py --auto
+          fi
+
+      - name: 提交数据
+        run: |
+          git config user.name  "gold-price-bot"
+          git config user.email "bang325@163.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "本轮无数据变化，不提交。"
+            exit 0
+          fi
+          git commit -m "data: $(date '+%Y-%m-%d %H:%M') 采集"
+          # 极少情况下远端被别处改动，先 rebase 再推
+          git pull --rebase --autostash || true
+          git push
+
+      - name: 失败时输出日志
+        if: failure()
+        run: |
+          echo "=== data/run.log 末尾 ==="
+          tail -40 data/run.log 2>/dev/null || echo "无日志"

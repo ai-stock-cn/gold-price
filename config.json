@@ -1,0 +1,67 @@
+{
+  "source": {
+    "url": "https://www.chnau99999.com/page/board",
+    "name": "中国黄金销售终端报价（chnau99999.com）",
+    "fields": {
+      "cur": "基础金价",
+      "sel": "销售价（客户买入参考）",
+      "buy": "回收价（客户卖出参考）",
+      "accessories": "饰品金价"
+    }
+  },
+  "slots": ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00",
+            "16:00", "17:00", "18:00", "19:00", "20:00", "21:00", "22:00"],
+  "slot_names": {
+    "09:00": "开盘",
+    "10:00": "上午",
+    "11:00": "上午",
+    "12:00": "午间",
+    "13:00": "午后",
+    "14:00": "尾盘前",
+    "15:00": "收盘",
+    "16:00": "盘后",
+    "17:00": "盘后",
+    "18:00": "晚间",
+    "19:00": "晚间",
+    "20:00": "银行截止",
+    "21:00": "夜间",
+    "22:00": "夜间收尾"
+  },
+  "trading_window": ["09:00", "22:00"],
+  "tail_grace": "22:30",
+  "weekdays_only": true,
+  "target": {
+    "price": 850.0,
+    "grams": 50,
+    "note": "计划在 850 元/克 以下买入 50 克"
+  },
+  "calibration": {
+    "sample_time": "2026-10-30 10:54",
+    "basis": "cur",
+    "source_cur_at_sample": 857.70,
+    "source_sel_at_sample": 873.70,
+    "source_buy_at_sample": 854.70,
+    "boc_customer_buy": 874.33,
+    "boc_customer_sell": 856.73,
+    "offset_buy": 16.63,
+    "offset_sell": -0.97,
+    "note": "offset = 中行报价 − 源站 cur，标定时一次性算出。银行或源站调整加点后需重新标定。"
+  },
+  "files": {
+    "csv": "data/gold_price.csv",
+    "report": "report.html",
+    "extremes": "data/sge_extremes.json"
+  },
+  "sge": {
+    "instid": "Au99.99",
+    "keep_days": 400,
+    "note": "上海黄金交易所日线，含当日开盘/收盘/最高/最低。字段顺序=[日期,开盘,收盘,最低,最高]，已用 4! 全排列穷举校验确认。"
+  },
+  "library": {
+    "enabled": true,
+    "node_block_id": "83kbBfHrVmGJxQT0VnIWfH",
+    "file_name": "积存金.html",
+    "url": "https://www.workbuddy.cn/space/d/83kbBfHrVmGJxQT0VnIWfH",
+    "note": "资料库已有页面「积存金」（kind=web）。推送=覆盖该节点内容，链接与节点不变，不新增条目。"
+  }
+}
