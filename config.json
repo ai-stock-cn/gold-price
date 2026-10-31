@@ -41,9 +41,10 @@
     "note": "offset = 中行报价 − 源站 cur，标定时一次性算出。银行或源站调整加点后需重新标定。"
   },
   "repo": {
-    "owner": "ai-stock-cn",
+    "owner": "bang325",
     "name": "gold-price",
-    "note": "报表里的「立即采集」按钮跳到这个仓库的 Actions 页面手动触发一次 workflow。"
+    "dispatch_url": "",
+    "note": "dispatch_url 填上代理服务地址（见 docs/dispatch-worker.js）后，「立即采集」会一键触发云端采集；留空则退回跳到 Actions 页面。"
   },
   "files": {
     "csv": "data/gold_price.csv",

@@ -50,11 +50,27 @@
 | 按钮 | 做什么 | 限制 |
 |---|---|---|
 | **↻ 刷新到最新** | 带 `?_=时间戳` 重新拉取已发布版本（绕过 CDN/浏览器缓存），比对页面里的「生成于」时间，有新版本就自动重载 | 用 `file://` 直接打开时浏览器禁止跨域请求，会明确提示失败；必须走 http 地址（Pages） |
-| **⚡ 立即采集** | 跳到仓库 Actions 页面，手动 `Run workflow` 触发一次真实采集 | 需要 GitHub 登录，等于两次点击 |
+| **⚡ 立即采集** | **配了代理就是一键触发**（点完它会等 45 秒自动比对，出新版就刷新）；没配代理则跳到 Actions 页面手动点 | 见下 |
 
-**为什么不做成「点一下就采集」**：纯静态页面没法安全持有能触发 workflow 的 GitHub token。
-把 PAT 写进公开页面等于公开泄露，GitHub 还会自动扫描并吊销。要真正一键采集，
-必须有个服务端（Cloudflare Worker / 云函数之类）替你持 token 并做频率限制——那是另一个工程。
+### 一键采集是怎么实现的
+
+纯静态页面**不能**自己持有 GitHub token：公开仓库的页面源码谁都能看，token 写进去等于公开泄露，
+GitHub 还会主动扫描并吊销。所以 token 必须放在服务端。
+
+`docs/dispatch-worker.js` 就是那个服务端——一个 Cloudflare Worker（免费额度足够），
+它持有 token，对浏览器只暴露「触发」这一个动作，不暴露 token 本身：
+
+```
+报表按钮  --POST-->  Worker  --带 token-->  GitHub API  --dispatch-->  collect 工作流
+```
+
+部署约 5 分钟，全程网页操作：建 fine-grained PAT（只给该仓库 `Actions: Read and write`）→
+新建 Worker 粘贴代码 → 配两个环境变量（`GH_TOKEN`、`ALLOW_ORIGIN`）→ 把 Worker 地址填进
+`config.json` 的 `repo.dispatch_url` → 重新生成报表。
+
+`dispatch_url` 留空时按钮自动退回「跳转 Actions」的旧行为，两条路都可用。
+⚠️ `ALLOW_ORIGIN` 只能挡浏览器跨站调用，挡不住 `curl` 伪造。想更严就加 Cloudflare 的
+Rate Limiting 规则，或改成带路径密钥的形式。
 
 ## 采集时点（每天 00:00–23:45，每 15 分钟）
 

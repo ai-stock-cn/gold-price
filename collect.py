@@ -878,6 +878,55 @@ REPORT_JS = """<script>
   });
   window.addEventListener('scroll', hide, true);
 })();
+</script>
+<script>
+// 「立即采集」：配了代理服务就一键触发云端 workflow，没配就退化成跳转（服务端渲染时就已分流）。
+(function () {
+  var btn = document.getElementById('btn-collect');
+  if (!btn) return;
+  var url = btn.getAttribute('data-url');
+  var toast = document.getElementById('toast');
+  if (!url || !toast) return;
+
+  function say(msg, sticky) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    if (!sticky) setTimeout(function () { toast.classList.remove('show'); }, 6000);
+  }
+
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    say('正在触发云端采集…', true);
+    fetch(url, { method: 'POST', mode: 'cors' })
+      .then(function (r) {
+        return r.text().then(function (t) { return { ok: r.ok, status: r.status, body: t }; });
+      })
+      .then(function (res) {
+        if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.body.slice(0, 80));
+        say('已触发，云端约 40–60 秒后出结果', false);
+        // 45 秒后自动比对一次，有新版本就重载
+        setTimeout(function () {
+          var u = new URL(location.href);
+          u.searchParams.set('_', Date.now());
+          fetch(u.toString(), { cache: 'no-store' })
+            .then(function (r) { return r.text(); })
+            .then(function (html) {
+              var re = /生成于 (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/;
+              var m = html.match(re);
+              var meta = document.getElementById('meta');
+              var cur = (meta.textContent.match(re) || [])[1];
+              if (m && m[1] !== cur) location.replace(u.toString());
+              else say('云端还没出新版本，稍后再点「刷新到最新」', false);
+            })
+            .catch(function () { say('已触发，请稍后手动刷新', false); });
+        }, 45000);
+      })
+      .catch(function (e) {
+        say('触发失败：' + e.message, false);
+      })
+      .then(function () { btn.disabled = false; });
+  });
+})();
 </script>"""
 
 
@@ -891,6 +940,8 @@ def build_report():
     repo_cfg = CFG.get("repo") or {}
     actions_url = (f"https://github.com/{repo_cfg['owner']}/{repo_cfg['name']}"
                    f"/actions/workflows/collect.yml") if repo_cfg else ""
+    # 配了代理服务就一键触发；没配就退化成「跳到 Actions 页面手动点」
+    dispatch_url = repo_cfg.get("dispatch_url") or ""
     today = date.today().strftime("%Y-%m-%d")
 
     ok_rows = [r for r in rows if r.get("status") == "ok" and fnum(r.get("cur")) is not None]
@@ -1268,7 +1319,7 @@ def build_report():
   </div>
   <div class="acts">
     <button class="btn primary" id="btn-refresh" type="button">↻ 刷新到最新</button>
-    {'<a class="btn" href="' + actions_url + '" target="_blank" rel="noopener">⚡ 立即采集</a>' if actions_url else ''}
+    {'<button class="btn" id="btn-collect" type="button" data-url="' + dispatch_url + '">⚡ 立即采集</button>' if dispatch_url else ('<a class="btn" href="' + actions_url + '" target="_blank" rel="noopener">⚡ 立即采集</a>' if actions_url else '')}
   </div>
 </div>
 <div class="toast" id="toast"></div>
