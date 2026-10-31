@@ -232,11 +232,12 @@ def sync_extremes(quiet=False):
 def extreme_rows(n=15):
     """最近 n 个有极值记录的交易日，倒序。
 
-    返回 [(d, open, close, low, high, est_low, est_high, est_close)]，
-    后三项已用 offset_buy 换算成中行估算买入价。
+    返回 [(d, open, close, low, high)]，全部是 SGE Au99.99 的原始价格。
+
+    2026-10-31：原先还返回到「中行估算买入价」的换算值，用 offset_buy 平移。
+    但用户只关心实时金价，且 SGE 口径与源站基准金价本就接近（实测差 0 元），
+    多一层平移反而制造了「两张图不同尺度」的困惑，故一律用原始价。
     """
-    cal = CFG["calibration"]
-    ob = cal["offset_buy"]
     days = load_extremes()
     out = []
     for d in sorted(days, reverse=True)[:n]:
@@ -248,8 +249,7 @@ def extreme_rows(n=15):
             hi = float(info["high"])
         except (KeyError, TypeError, ValueError):
             continue
-        out.append((d, op, cl, lo, hi,
-                    round(lo + ob, 2), round(hi + ob, 2), round(cl + ob, 2)))
+        out.append((d, op, cl, lo, hi))
     return out
 
 
@@ -438,8 +438,9 @@ def collect(force=False, auto=False):
         "src": SRC_LIVE,
     }
     append_row(row)
-    log(f"已记录 {book_slot}（{hhmm} 实采）：基准 {data['cur']:.2f} → "
-        f"估算中行买入 {est_buy:.2f} / 卖出 {est_sell:.2f}")
+    # est_buy / est_sell 仍写进 CSV（历史列不能断档），但已不参与任何展示与指标，
+    # 所以日志只报实时金价，免得看日志的人以为报表还在算银行价。
+    log(f"已记录 {book_slot}（{hhmm} 实采）：实时金价 {data['cur']:.2f}")
     sync_extremes()
     return row
 
@@ -535,7 +536,7 @@ def fill_today(dry=False):
     for row in plan:
         s = row["slot"]
         if dry:
-            log(f"[dry] {s} ← {row['note']} 的 {row['est_buy']}")
+            log(f"[dry] {s} ← {row['note']} 的 {row['cur']}")
         else:
             append_row(row)
         added += 1
@@ -806,7 +807,6 @@ REPORT_JS = """<script>
 
 def build_report():
     rows = read_rows()
-    cal = CFG["calibration"]
     target = CFG["target"]
     slots = CFG["slots"]
     names = CFG["slot_names"]
@@ -817,7 +817,7 @@ def build_report():
                    f"/actions/workflows/collect.yml") if repo_cfg else ""
     today = date.today().strftime("%Y-%m-%d")
 
-    ok_rows = [r for r in rows if r.get("status") == "ok" and fnum(r.get("est_buy")) is not None]
+    ok_rows = [r for r in rows if r.get("status") == "ok" and fnum(r.get("cur")) is not None]
 
     # ---- 今日：真实采集（live）与补齐（carry）严格分开，不能混在一起算「采集点数」
     day_rows_all = [r for r in ok_rows if r["d"] == today]
@@ -836,11 +836,11 @@ def build_report():
     # 真实点实心、补齐点空心——一眼能看出哪个点是采出来的、哪个是沿用的。
     def slot_plot(s):
         r = today_map.get(s)
-        if r and fnum(r["est_buy"]) is not None:
-            return fnum(r["est_buy"]), False
+        if r and fnum(r["cur"]) is not None:
+            return fnum(r["cur"]), False
         c = carry_map.get(s)
-        if c and fnum(c["est_buy"]) is not None:
-            return fnum(c["est_buy"]), True
+        if c and fnum(c["cur"]) is not None:
+            return fnum(c["cur"]), True
         return None, False
 
     today_series = [(s, slot_plot(s)[0]) for s in slots]
@@ -894,26 +894,25 @@ def build_report():
     daily_series = [((dd[5:]
                       + ("*" if daily_src[dd] == "sge_daily" else "")
                       + ("~" if dd == today and today_is_latest else "")),
-                     fnum(daily_pick[dd]["est_buy"])) for dd in dates if dd in daily_pick]
+                     fnum(daily_pick[dd]["cur"])) for dd in dates if dd in daily_pick]
 
     # ---- 指标
-    cur_buy = fnum(latest["est_buy"]) if latest else None
-    cur_sell = fnum(latest["est_sell"]) if latest else None
-    day_first = fnum(today_rows[0]["est_buy"]) if today_rows else None
-    day_diff = (cur_buy - day_first) if (cur_buy is not None and day_first is not None) else None
+    cur_price = fnum(latest["cur"]) if latest else None
+    day_first = fnum(today_rows[0]["cur"]) if today_rows else None
+    day_diff = (cur_price - day_first) if (cur_price is not None and day_first is not None) else None
     day_pct = (day_diff / day_first * 100) if (day_diff is not None and day_first) else None
-    prev_diff = (cur_buy - fnum(prev_last["est_buy"])) if (cur_buy is not None and prev_last) else None
-    prev_pct = (prev_diff / fnum(prev_last["est_buy"]) * 100) if (prev_diff is not None and fnum(prev_last["est_buy"])) else None
+    prev_price = fnum(prev_last["cur"]) if prev_last else None
+    prev_diff = (cur_price - prev_price) if (cur_price is not None and prev_price is not None) else None
+    prev_pct = (prev_diff / prev_price * 100) if (prev_diff is not None and prev_price) else None
 
-    gap = (cur_buy - target["price"]) if cur_buy is not None else None
-    gap_amount = gap * target["grams"] if gap is not None else None
+    gap = (cur_price - target["price"]) if cur_price is not None else None
 
     # ---- 日内极值：上金所日线里当天<b>真实触及过</b>的最低/最高。
     #      比每小时若干次采样可靠得多——只要当天到过某个价，这里一定留痕。
     ex_rows = extreme_rows(15)
     today_ex = ex_rows[0] if (ex_rows and ex_rows[0][0] == today) else None
-    ex_low = today_ex[5] if today_ex else None
-    ex_high = today_ex[6] if today_ex else None
+    ex_low = today_ex[3] if today_ex else None
+    ex_high = today_ex[4] if today_ex else None
     ex_low_gap = (ex_low - target["price"]) if ex_low is not None else None
     ex_low_cls = "down" if (ex_low_gap is not None and ex_low_gap <= 0) else ""
     if today_ex:
@@ -924,26 +923,26 @@ def build_report():
         ex_low_sub = "今日尚无极值记录（收盘后自动补齐）"
 
     ext_rows_html = []
-    for d, op, cl, lo, hi, el, eh, ec in ex_rows:
-        gp = el - target["price"]
+    for d, op, cl, lo, hi in ex_rows:
+        gp = lo - target["price"]
         hit = gp <= 0
         row_cls = ' class="hit"' if hit else ""
         today_tag = ' <span class="tag">今日</span>' if d == today else ""
         ext_rows_html.append(
             f"<tr{row_cls}><td>{d}{today_tag}</td>"
-            f'<td class="num strong">{fmt(el)}</td>'
-            f'<td class="num">{fmt(eh)}</td>'
-            f'<td class="num">{fmt(ec)}</td>'
+            f'<td class="num strong">{fmt(lo)}</td>'
+            f'<td class="num">{fmt(hi)}</td>'
+            f'<td class="num">{fmt(cl)}</td>'
             f'<td class="num {"down" if hit else "muted"}">{fmt(gp)}</td></tr>')
     ext_body = "".join(ext_rows_html)
     if not ext_body:
         ext_body = ('<tr><td colspan="5" class="muted">还没有极值记录，'
                     '跑一次 <code>python3 collect.py --sync-extremes</code> 拉取。</td></tr>')
-    best_day = min(ex_rows, key=lambda x: x[5]) if ex_rows else None
+    best_day = min(ex_rows, key=lambda x: x[3]) if ex_rows else None
     if best_day:
-        b_gap = best_day[5] - target["price"]
+        b_gap = best_day[3] - target["price"]
         best_txt = (f"<b>{best_day[0]}</b> 是近 {len(ex_rows)} 个交易日里日内最低的一天："
-                    f"<b>{fmt(best_day[5])}</b> 元/克，距目标 <b>+{b_gap:.2f}</b> 元。")
+                    f"<b>{fmt(best_day[3])}</b> 元/克，距目标 <b>+{b_gap:.2f}</b> 元。")
     else:
         best_txt = ""
 
@@ -953,9 +952,9 @@ def build_report():
     ex_labels = [d[5:] for d, *_ in ex_chrono]
     ex_chart = svg_multiline(
         ex_labels,
-        [("日内最低", "#2f9e68", [x[5] for x in ex_chrono]),
-         ("日内最高", "#e5484d", [x[6] for x in ex_chrono]),
-         ("日线收盘", "#e0b354", [x[7] for x in ex_chrono])],
+        [("日内最低", "#2f9e68", [x[3] for x in ex_chrono]),
+         ("日内最高", "#e5484d", [x[4] for x in ex_chrono]),
+         ("日线收盘", "#e0b354", [x[2] for x in ex_chrono])],
         ref=target["price"], height=240, band=(0, 1, "#8b949e"),
         empty="还没有极值记录，跑一次 "
               "<code>python3 collect.py --sync-extremes</code> 拉取。")
@@ -1006,21 +1005,19 @@ def build_report():
         if r:
             chg = ""
             if shown:
-                d0 = fnum(r["est_buy"]) - shown[-1]
+                d0 = fnum(r["cur"]) - shown[-1]
                 chg = f'<span class="{cls(d0)}">{arrow(d0)} {d0:+.2f}</span>'
-            shown.append(fnum(r["est_buy"]))
+            shown.append(fnum(r["cur"]))
             nt = nominal_time(r)
             tsm = r["ts"][11:16]
             src_txt = f"{nt} 实采" if nt == tsm else f"{nt} · {tsm} 取值"
             detail_rows.append(
                 f'<tr><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num">{fmt(fnum(r["cur"]))}</td>'
-                f'<td class="num strong">{fmt(fnum(r["est_buy"]))}</td>'
-                f'<td class="num">{fmt(fnum(r["est_sell"]))}</td>'
+                f'<td class="num strong">{fmt(fnum(r["cur"]))}</td>'
                 f'<td class="num">{chg}</td>'
                 f'<td class="num muted">{src_txt}</td></tr>')
         elif c:
-            v = fnum(c["est_buy"])
+            v = fnum(c["cur"])
             chg = ""
             if shown and v is not None:
                 d0 = v - shown[-1]
@@ -1030,17 +1027,15 @@ def build_report():
                 shown.append(v)
             detail_rows.append(
                 f'<tr class="carry"><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num">{fmt(fnum(c["cur"]))}</td>'
                 f'<td class="num">{fmt(v)}</td>'
-                f'<td class="num">{fmt(fnum(c["est_sell"]))}</td>'
                 f'<td class="num">{chg}</td>'
                 f'<td class="num muted">{c.get("note") or "沿用"}</td></tr>')
         else:
             # 还没到点的时点留空，比编一个数诚实
             detail_rows.append(
                 f'<tr class="miss"><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num">—</td><td class="num">—</td><td class="num">—</td>'
-                f'<td class="num">—</td><td class="num">—</td></tr>')
+                f'<td class="num">—</td><td class="num">—</td>'
+                f'<td class="num">—</td></tr>')
 
     # 归不到任何整点的记录（早于 09:00 的手动采集等）单独列在末尾
     for r in today_rows:
@@ -1048,34 +1043,27 @@ def build_report():
             continue
         detail_rows.append(
             f'<tr class="extra"><td>{r["ts"][11:16]}</td><td>手动采集</td>'
-            f'<td class="num">{fmt(fnum(r["cur"]))}</td>'
-            f'<td class="num strong">{fmt(fnum(r["est_buy"]))}</td>'
-            f'<td class="num">{fmt(fnum(r["est_sell"]))}</td>'
+            f'<td class="num strong">{fmt(fnum(r["cur"]))}</td>'
             f'<td class="num muted">—</td>'
             f'<td class="num muted">{r["ts"][11:]}</td></tr>')
 
     done_cnt = len([s for s in slots if s in today_map])
 
-    # 今日明细折线：估算买入 / 估算卖出 / 基准金价 三条线共用纵轴。
-    # 卖出与基准只差 offset_sell(-0.97)，两条线会贴得很近——那是真实的点差，不是画错。
-    detail_buy, detail_sell, detail_base = [], [], []
+    # 今日明细折线：只画实时金价一条线（用户已不关心中行估算价）。
+    detail_prices = []
     for s in slots:
         src = today_map.get(s) or carry_map.get(s)
-        detail_buy.append(fnum(src["est_buy"]) if src else None)
-        detail_sell.append(fnum(src["est_sell"]) if src else None)
-        detail_base.append(fnum(src["cur"]) if src else None)
+        detail_prices.append(fnum(src["cur"]) if src else None)
     detail_chart = svg_multiline(
         list(slots),
-        [("估算买入", "#e0b354", detail_buy),
-         ("估算卖出", "#58a6ff", detail_sell),
-         ("基准金价", "#8b949e", detail_base)],
+        [("实时金价", "#e0b354", detail_prices)],
         ref=target["price"], height=250, hollow=today_hollow,
         empty="今天还没有采集到数据，首次采集后这里自动出现曲线。")
 
     carry_cnt = len([s for s in slots if s in carry_map])
     today_title = (f"今日分时 · 标准时点 {done_cnt}/{len(slots)} 实采"
                    + (f" · {carry_cnt} 个沿用" if carry_cnt else "")
-                   + "（估算中行买入价）"
+                   + "（实时金价）"
                    if today_rows else "今日分时（尚未采集）")
 
     warn = []
@@ -1117,22 +1105,17 @@ def build_report():
             f"图中带 <b>*</b> 的日期即回溯日。")
     if ex_rows:
         warn.append(
-            f"「日内极值」取自上海黄金交易所 Au99.99 日线，换算沿用同一偏移 "
-            f"+{cal['offset_buy']}，与分时估算价同源可比；"
+            "「日内极值」取自上海黄金交易所 Au99.99 日线，是原始价、未做任何换算；"
             + ("今日数据在收盘后由上金所更新，盘中看到的可能是截至当时的部分极值。"
                if today_ex else
                "今日暂无极值数据，收盘后自动补齐。"))
-    if cal["sample_time"]:
-        warn.append(f"中行报价为<b>估算值</b>，依据 {cal['sample_time']} 的标定"
-                    f"（买入 {cal['boc_customer_buy']:.2f} / 卖出 {cal['boc_customer_sell']:.2f}，"
-                    f"源站基准 {cal['source_cur_at_sample']:.2f}）。银行调整加点后需重新标定。")
 
     warn_html = "".join(f"<li>{w}</li>" for w in warn)
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>积存金价格报表 · {latest['d'] if latest else today}</title>
+<title>黄金实时金价报表 · {latest['d'] if latest else today}</title>
 <style>
   :root{{--bg:#0f1115;--panel:#171a21;--panel2:#1d212a;--line:#252a34;
         --fg:#e9eaee;--muted:#98a0ad;--gold:#e0b354;--up:#e5484d;--down:#2f9e68;}}
@@ -1197,7 +1180,7 @@ def build_report():
 </style></head><body><div class="wrap">
 <div class="topbar">
   <div>
-    <h1>积存金价格报表</h1>
+    <h1>黄金实时金价</h1>
     <div class="sub" id="meta">数据日 {latest['d'] if latest else today} · 生成于 {datetime.now():%Y-%m-%d %H:%M} ·
 来源 {CFG['source']['name']}</div>
   </div>
@@ -1209,23 +1192,19 @@ def build_report():
 <div class="toast" id="toast"></div>
 
 <div class="cards">
-  <div class="card"><div class="k">估算中行买入价（你买入）</div>
-    <div class="v">{fmt(cur_buy)}</div>
-    <div class="d">{'今日' if latest_is_today else '最近一次'} · 基准 {fmt(fnum(latest['cur']) if latest else None)}</div></div>
-  <div class="card"><div class="k">估算中行卖出价（你卖出）</div>
-    <div class="v">{fmt(cur_sell)}</div>
-    <div class="d">买卖价差 {fmt(cur_buy - cur_sell if (cur_buy is not None and cur_sell is not None) else None)} 元/克</div></div>
+  <div class="card"><div class="k">实时金价（元/克）</div>
+    <div class="v">{fmt(cur_price)}</div>
+    <div class="d">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
   <div class="card"><div class="k">今日较首点</div>
     <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
     <div class="d">{'—' if day_pct is None else f'{day_pct:+.2f}%'} · 首点 {fmt(day_first)}</div></div>
   <div class="card"><div class="k">较上一交易日</div>
     <div class="v {cls(prev_diff)}">{arrow(prev_diff)} {fmt(abs(prev_diff) if prev_diff is not None else None)}</div>
-    <div class="d">{'—' if prev_pct is None else f'{prev_pct:+.2f}%'} · 上日{'收盘' if prev_is_tail else '末点'} {fmt(fnum(prev_last['est_buy']) if prev_last else None)}</div></div>
+    <div class="d">{'—' if prev_pct is None else f'{prev_pct:+.2f}%'} · 上日{'收盘' if prev_is_tail else '末点'} {fmt(prev_price)}</div></div>
   <div class="card"><div class="k">距目标 {target['price']:.2f}</div>
     <div class="v {'up' if (gap or 0) > 0 else 'down'}">{fmt(gap)}</div>
-    <div class="d">{'仍高于目标，' if (gap or 0) > 0 else '已低于目标，'}
-      {target['grams']} 克差额 {fmt(abs(gap_amount) if gap_amount is not None else None)} 元</div></div>
-  <div class="card"><div class="k">今日日内最低（估算买入）</div>
+    <div class="d">{'仍高于目标' if (gap or 0) > 0 else '已低于目标'} · 目标 {target['price']:.2f} 元/克</div></div>
+  <div class="card"><div class="k">今日日内最低（实时）</div>
     <div class="v {ex_low_cls}">{fmt(ex_low)}</div>
     <div class="d">{ex_low_sub}</div></div>
 </div>
@@ -1240,7 +1219,7 @@ def build_report():
 {svg_chart(daily_series, ref=target['price'], height=200)}</section>
 
 <section><h2>日内极值 · 近 {len(ex_rows)} 个交易日</h2>
-<div class="hint">取自上海黄金交易所 Au99.99 日线，是当天<b>真实触及过</b>的最低/最高价，已换算为估算中行买入价。它比每小时若干次采样可靠——哪怕低点只闪了一分钟也会留痕。<br>
+<div class="hint">取自上海黄金交易所 Au99.99 日线，是当天<b>真实触及过</b>的最低/最高价，原始价、不做换算。它比每 {step_min} 分钟一次采样可靠——哪怕低点只闪了一瞬间也会留痕。<br>
 灰带＝当日<b>最低~最高</b>的波动区间，带子越宽当天波动越大；虚线为 {target['price']:.2f} 目标价。鼠标悬停任一点可看数值。<br>
 （上金所日线与本表统计口径不同步，极端情况下可能出现「当前价低于今日日内最低」，以本表的日线口径为准。）{best_txt}</div>
 {ex_chart}
@@ -1249,14 +1228,12 @@ def build_report():
 <tbody>{ext_body}</tbody></table></details></section>
 
 <section><h2>今日明细 · {slots[0]} ~ {tail_slot} {step_txt}一个点</h2>
-<div class="hint">三条线共用纵轴：金色<b>估算买入</b>、蓝色<b>估算卖出</b>、灰色<b>基准金价</b>。
-卖出与基准只差 {abs(cal['offset_sell']):.2f} 的点差，两条线几乎重合属正常。<br>
+<div class="hint">金色线＝<b>实时金价</b>（源站基准价，元/克）；虚线为 {target['price']:.2f} 目标价。<br>
 <b>实心点</b>＝该时点真实采集；<b>空心点</b>＝没采到、按最近一条真实样本补的，<b>不是该时点的真实价格</b>。
 点太密时悬停任意一点仍可看数值。</div>
 {detail_chart}
 <details><summary>展开逐时点数值表（含来源与较上点）</summary>
-<table><thead><tr><th>时点</th><th>名称</th><th style="text-align:right">基准金价</th>
-<th style="text-align:right">估算买入</th><th style="text-align:right">估算卖出</th>
+<table><thead><tr><th>时点</th><th>名称</th><th style="text-align:right">实时金价</th>
 <th style="text-align:right">较上点</th><th style="text-align:right">来源</th></tr></thead>
 <tbody>{''.join(detail_rows)}</tbody></table></details></section>
 
@@ -1264,7 +1241,7 @@ def build_report():
 
 <footer>
 价格来源：{CFG['source']['url']}（公开报价接口，每天 {slots[0]}~{tail_slot} {step_txt}采集，共 {len(slots)} 个时点）。<br>
-中行积存金价为本程序按标定偏移<b>估算</b>，并非中国银行官方报价；实际成交价、点差与提金费用以中行 App 与柜面为准。<br>
+报表展示的是源站<b>基准金价</b>原值，不做任何换算；日内极值来自上海黄金交易所 Au99.99 日线，两者口径可能略有差异。<br>
 本报表仅供个人记录与复盘，不构成投资建议，也不保证数据源持续可用或数值准确。
 </footer>
 </div>{REPORT_JS}</body></html>

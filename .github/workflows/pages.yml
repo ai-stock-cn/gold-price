@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
   # 每次「采集积存金价格」跑完就跟着重新发布，不用另设 cron，天然和数据同步
   workflow_run:
-    workflows: ["采集积存金价格"]
+    workflows: ["采集黄金实时金价"]
     types: [completed]
     branches: [main]
 

@@ -24,9 +24,9 @@
   "tail_grace": "23:59",
   "weekdays_only": false,
   "target": {
-    "price": 850.0,
+    "price": 833.37,
     "grams": 50,
-    "note": "计划在 850 元/克 以下买入 50 克"
+    "note": "改为只看源站基准金价后，目标等效换算：原计划中行买入 850 − offset_buy 16.63 = 833.37。"
   },
   "calibration": {
     "sample_time": "2026-10-30 10:54",
