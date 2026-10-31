@@ -1,16 +1,16 @@
 {
- "at": "2026-10-31 08:50:50",
+ "at": "2026-10-31 14:51:45",
  "tz": "Asia/Shanghai",
  "source": {
   "ok": true,
   "code": 200,
-  "sec": 2.21,
+  "sec": 4.0,
   "head": "<!DOCTYPE html>\r\n<html>\r\n\r\n<head>\r\n    <meta http-equiv=\"content-type\" content=\"text/html\" charset=\"UTF-8\">\r\n    <meta name=\"viewport\" content=\"width=device-wid"
  },
  "sge": {
   "ok": true,
   "code": 200,
-  "sec": 1.53,
+  "sec": 1.35,
   "head": "{\"time\":[[\"2016-12-19\",262.45,262.76,262.02,263.5],[\"2016-12-20\",262.88,262.06,261.42,263.7],[\"2016-12-21\",262.4,260.97,258.6,262.65],[\"2016-12-22\",261.18,260.0"
  }
 }
