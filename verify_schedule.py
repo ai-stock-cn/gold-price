@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""排期回归测试：09:00–22:00 每小时采集 / 缺口按最近报价补齐 / 日线取当天最后一个真实点。
+"""排期回归测试：24 小时逐时采集 / 缺口按最近报价补齐 / 日线取当天最后一个真实点。
 
 用法：
     python3 verify_schedule.py
 
 完全隔离：自动在 /tmp 下复制一份项目副本再跑，不碰真实的 CSV 与报表。
 时间用 monkeypatch 控制、报价固定返回，全程不发网络请求。
-改完 config.json 的 slots / trading_window / tail_grace 之后跑一遍最有用。
+改完 config.json 的 slots / trading_window / tail_grace / weekdays_only 之后跑一遍最有用。
 
-当前语义（2026-10-30 改）：
+当前语义（2026-10-31 改，24/7 口径）：
+  * 时点覆盖 00:00-23:00 共 24 个整点，**含周末**（weekdays_only=false）；
   * 一次真实请求只落一行 live 数据，落在「已到的最后一个整点」上；
-  * 中间没开机的整点由 fill_today() 用「前向沿用最近实采价」补成 carry 行；
+  * 中间没采到的整点由 fill_today() 用「前向沿用最近实采价」补成 carry 行；
   * carry 行只用于让曲线连续，日线/收盘价不认它。
+
+所有场景都跑在一个**周六**上，所以每个用例同时也验证了「周末照样采集」。
 """
 
 import csv
@@ -28,10 +31,10 @@ TEST_QUOTE = 855.0            # 仿真用的固定基准金价
 FAKE = None
 
 
-def last_weekday():
-    """最近一个工作日（周一~周五），保证不会被 weekdays_only 跳过。"""
+def last_saturday():
+    """最近一个周六。用它当仿真日，顺手验证 weekdays_only=false。"""
     d = datetime.date.today()
-    while d.weekday() >= 5:
+    while d.weekday() != 5:
         d -= datetime.timedelta(days=1)
     return d.isoformat()
 
@@ -48,7 +51,7 @@ SANDBOX = make_sandbox()
 sys.path.insert(0, SANDBOX)
 import collect  # noqa: E402
 
-TODAY = last_weekday()
+TODAY = last_saturday()
 
 
 class FakeDT(datetime.datetime):
@@ -104,6 +107,13 @@ def run(hhmm):
     return live_slots()
 
 
+def at(slot, plus_min=5):
+    """把 MM:HH 往后推几分钟，模拟「整点过 5 分才触发」。"""
+    h, m = map(int, slot.split(":"))
+    t = (h * 60 + m + plus_min) % (24 * 60)
+    return f"{t // 60:02d}:{t % 60:02d}"
+
+
 def head(t):
     print(f"\n--- {t} ---")
 
@@ -111,74 +121,83 @@ def head(t):
 PROGRESS = []
 slots = collect.CFG["slots"]
 tail = slots[-1]
+mid = len(slots) // 2
 
-head(f"仿真日 {TODAY}（{datetime.date.fromisoformat(TODAY).strftime('%A')}）")
+head(f"仿真日 {TODAY}（{datetime.date.fromisoformat(TODAY).strftime('%A')}，周末）")
 print(f"沙箱: {SANDBOX}")
 print(f"标准时点: {slots[0]} … {tail} 共 {len(slots)} 个")
+print(f"weekdays_only={collect.CFG.get('weekdays_only')}  "
+      f"trading_window={collect.CFG['trading_window']}  tail_grace={collect.CFG['tail_grace']}")
 
-head(f"场景1：08:00 触发（早于首个时点 {slots[0]}）")
+head(f"场景1：凌晨 {at(slots[3])} 触发 → 落在 {slots[3]}（周末 + 凌晨都要能采）")
 clear_today()
-got = run("08:00")
-PROGRESS.append(("开盘前不采集", got == [], got))
+got = run(at(slots[3]))
+PROGRESS.append((f"周末凌晨也能采集，写入 {slots[3]}", got == [slots[3]], got))
 
-head("场景2：09:05 首次触发 → 落在 09:00")
-got = run("09:05")
-PROGRESS.append(("首点写入 09:00", got == ["09:00"], got))
-
-head("场景3：10:05 触发 → 落在 10:00")
-got = run("10:05")
-PROGRESS.append(("逐小时推进写入 10:00", got == ["09:00", "10:00"], got))
-
-head("场景4：10:40 重复触发（10:00 已有真实记录）")
+head(f"场景2：{at(slots[3], 40)} 重复触发（{slots[3]} 已有真实记录）")
 before = len(today_rows())
-got = run("10:40")
+run(at(slots[3], 40))
 PROGRESS.append(("同一整点不重复写入", len(today_rows()) == before, len(today_rows())))
 
-head("场景5：13:40 才开机（11:00/12:00/13:00 都没采）")
-got = run("13:40")
-PROGRESS.append(("只补当前整点 13:00，不伪造 11/12 点",
-                 got == ["09:00", "10:00", "13:00"], got))
+head(f"场景3：跳到 {at(slots[mid])} 才触发（中间 {len(slots[4:mid])} 个整点都没采）")
+got = run(at(slots[mid]))
+PROGRESS.append((f"只写当前整点 {slots[mid]}，不伪造中间点",
+                 got == [slots[3], slots[mid]], got))
 
-head("场景6：fill_today 补齐缺口")
+head("场景4：fill_today 补齐缺口（只能前向，不能回头用未来的价）")
 collect.fill_today()
 c = carry_slots()
-PROGRESS.append(("11:00/12:00 被补成 carry",
-                 {"11:00", "12:00"} <= set(c), c))
+expect_gap = set(slots[4:mid])
+PROGRESS.append((f"中间 {len(expect_gap)} 个整点被补成 carry",
+                 expect_gap <= set(c), sorted(expect_gap - set(c))))
 PROGRESS.append(("补齐行标记为 carry",
                  all(r.get("src") == "carry" for r in today_rows()
-                     if r["slot"] in ("11:00", "12:00")), c))
+                     if r["slot"] in expect_gap), c))
+early = set(slots[:3])          # 00:00 / 01:00 / 02:00，都早于首条真实记录 03:00
+PROGRESS.append(("早于当天首条真实记录的时点留空，不用未来价回填",
+                 not (early & set(c)), sorted(early & set(c))))
 
-head("场景7：fill_today 幂等（连跑两次结果不变）")
+head("场景5：fill_today 幂等（连跑两次结果不变）")
 n1 = len(today_rows())
 collect.fill_today()
 PROGRESS.append(("重复补齐不产生新行", len(today_rows()) == n1, len(today_rows())))
 
-head("场景8：15:05 / 22:05 继续推进")
-run("15:05")
-got = run("22:05")
+head(f"场景6：{at(tail)} 触发 → 收尾时点 {tail}")
+got = run(at(tail))
 PROGRESS.append((f"收尾时点 {tail} 可被采到", tail in got, got))
-collect.fill_today()
 
-head("场景9：22:40 再触发（收尾点已有、超出宽限）")
+head("场景7：收尾点已有记录后再触发")
 before = len(today_rows())
-run("22:40")
-PROGRESS.append(("收尾后不再写入", len(today_rows()) == before, len(today_rows())))
+run(at(tail, 40))
+PROGRESS.append(("同一收尾点不重复写入", len(today_rows()) == before, len(today_rows())))
 
-head("场景10：整天没开机，22:20 一次性补")
+head("场景8：整天只在最后一小时采过一次")
 clear_today()
-got = run("22:20")
+got = run(at(tail, 10))
 PROGRESS.append(("整天只采一次也有收尾点", got == [tail], got))
 collect.fill_today()
-covered = {r["slot"] for r in today_rows()}
-PROGRESS.append(("14 个整点全部有值", len(covered) == len(slots), sorted(covered)))
+covered = sorted({r["slot"] for r in today_rows()})
+# 只有 23:00 一条真实记录，它前面 23 个整点没有任何「已知的过去价」可沿用，
+# 因此全部留空——这是正确的，拿 23:00 的价回填全天等于用未来信息造一条平线。
+PROGRESS.append(("唯一的样本在收尾点，前面的整点全部留空",
+                 covered == [tail], covered))
+
+head("场景9：凌晨先采到，之后整天的缺口才允许前向补齐")
+clear_today()
+run(at(slots[0], 5))              # 00:05 → 00:00
+run(at(slots[4], 5))              # 04:05 → 04:00
+collect.fill_today()
+filled = sorted({r["slot"] for r in today_rows()})
+PROGRESS.append((f"00:00 之后到 04:00 之间的缺口被补齐（共 {len(filled)} 个整点）",
+                 set(slots[:5]) <= set(filled), filled))
 
 head("报表校验")
-set_now("22:30")
+set_now(at(tail, 20))
 collect.build_report()
 html = open(collect.REPORT_PATH, encoding="utf-8").read()
 intraday = re.search(r"<h2>今日分时.*?</svg>", html, re.S).group(0)
 circles = len(re.findall(r"<circle", intraday))
-PROGRESS.append(("今日曲线铺满 14 个整点", circles == len(slots), circles))
+PROGRESS.append((f"今日曲线铺满 {len(slots)} 个整点", circles == len(slots), circles))
 PROGRESS.append(("今日曲线区分实心/空心点",
                  len(re.findall(r'r="3.4"', intraday)) >= 1
                  and len(re.findall(r'r="2.8"', intraday)) >= 1,
@@ -187,9 +206,11 @@ PROGRESS.append(("今日曲线区分实心/空心点",
 det = re.search(r"<h2>今日明细.*?</tbody>", html, re.S).group(0)
 n_detail = len([1 for m in re.findall(r'<tr(?: class="\w+")?>(.*?)</tr>', det, re.S)
                 if len(re.findall(r"<td[^>]*>", m)) >= 7])
-PROGRESS.append(("今日明细 14 行", n_detail == len(slots), n_detail))
+PROGRESS.append((f"今日明细 {len(slots)} 行", n_detail == len(slots), n_detail))
 PROGRESS.append(("日内极值区块已渲染",
                  bool(re.search(r"<h2>日内极值[^<]*</h2>", html)), True))
+PROGRESS.append((f"今日明细标题覆盖 {slots[0]} ~ {tail}",
+                 f"{slots[0]} ~ {tail}" in html, ""))
 PROGRESS.append(("日线图包含当天", TODAY[5:] in html, TODAY[5:]))
 
 head("结果")
