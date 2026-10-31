@@ -34,6 +34,14 @@ CONFIG_PATH = os.path.join(BASE, "config.json")
 with open(CONFIG_PATH, encoding="utf-8") as f:
     CFG = json.load(f)
 
+# ---- 时点栅格：按 slot_step_minutes 生成，避免在配置里硬写 288 行。
+#      5 分钟 → 00:00, 00:05, …, 23:55 共 288 个；改成 15 → 96 个，全部代码自适应。
+if CFG.get("slot_step_minutes"):
+    _step = int(CFG["slot_step_minutes"])
+    if 1440 % _step:
+        raise SystemExit(f"slot_step_minutes={_step} 不能整除 1440，一天切不匀")
+    CFG["slots"] = [f"{m // 60:02d}:{m % 60:02d}" for m in range(0, 1440, _step)]
+
 CSV_PATH = os.path.join(BASE, CFG["files"]["csv"])
 REPORT_PATH = os.path.join(BASE, CFG["files"]["report"])
 EXTREMES_PATH = os.path.join(BASE, CFG["files"]["extremes"])
@@ -439,15 +447,17 @@ def collect(force=False, auto=False):
 def fill_today(dry=False):
     """把今天缺失的标准时点用「最近的已知报价」补齐，写 src=carry。
 
-    只做前向沿用（step-forward）：某时点用「它之前最后一个真实报价」，
-    绝不拿后面才知道的价格回头填早先的时点——那是未来信息，会画出假的走势。
+    补值规则（2026-10-31 按用户要求定稿）：**用最近的一条真实样本**——
 
-    因此**早于当天第一条真实记录的那些时点一律留空**，不补。
-    2026-10-31 改 24 小时口径后修的就是这里：原先 `picked is None` 时退化用 `real[0]`，
-    在 09:00 起点的旧配置下很少发生；一旦时点从 00:00 开始，若当天第一次采集在 03:00，
-    00:00/01:00/02:00 就会全被填成 03:00 的价（甚至 23:00 的价），属于典型的未来函数。
+    * 该时点之前已有真实记录 → 沿用「之前最后一个」（前向沿用，note：沿用 HH:MM 报价）；
+    * 该时点之前还没有任何真实记录 → 用「之后最早的那条」回填（note：回填 HH:MM 报价）。
 
-    carry 行不是真实采样，报表里单独标注；日线/收盘价也不认它。
+    两种都标成 carry，报表里灰色显示、曲线上画空心，与实采区分。回填那一种本质是
+    用后验数据补前段，所以 note 特意写作「回填」而不是「沿用」，一眼能看出性质不同。
+
+    唯一不补的是**还没到的时点**（s > 当前时刻）——那会凭空写出未来价格。
+
+    carry 行不是真实采样，日线/收盘价也不认它。
     """
     rows = read_rows()
     today = date.today().strftime("%Y-%m-%d")
@@ -495,8 +505,13 @@ def fill_today(dry=False):
             else:
                 break
         if picked is None:
-            # 早于当天第一条真实记录：此时还没有任何已知报价，留空。
-            # 拿首条（更晚的）报价来填等于用未来信息，会把曲线画成平的假走势。
+            # 早于当天第一条真实记录：往前没有可沿用的价，按用户要求用「最近的新数据」回填，
+            # 也就是当天最早的那条真实记录（比此时点更晚）。
+            # 这属于「用后验数据补前段」，note 里用「回填」而不是「沿用」把性质标清楚。
+            picked = real[0]
+            row = plan_row(s, picked)
+            row["note"] = f"回填 {nominal_time(picked)} 报价"
+            plan.append(row)
             continue
         plan.append(plan_row(s, picked))
 
@@ -542,6 +557,25 @@ def fnum(x):
 
 def fmt(x, nd=2):
     return "—" if x is None else f"{x:,.{nd}f}"
+
+
+def label_indices(labels, max_labels=12):
+    """挑横轴要标出来的下标。
+
+    5 分钟粒度下 n 可能到 288，等间距取会得到 02:25 / 04:50 这种丑标签，
+    所以优先只标整点（MM:00），整点太多时再隔几个取。日期型标签走等间距。
+    """
+    n = len(labels)
+    if n <= max_labels:
+        return set(range(n))
+    hourly = [i for i, l in enumerate(labels) if l.endswith(":00")]
+    if hourly:
+        k = max(1, (len(hourly) + max_labels - 1) // max_labels)
+        keep = set(hourly[::k])
+        keep.add(n - 1)                      # 末尾一定标出来
+        return keep
+    step = max(1, (n + max_labels - 1) // max_labels)
+    return set(range(0, n, step)) | {n - 1}
 
 
 def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="元/克",
@@ -610,9 +644,9 @@ def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="�
         parts.append(f'<text x="{x(i):.1f}" y="{y(v) - 9:.1f}" class="val" '
                      f'text-anchor="middle">{v:.2f}</text>')
 
-    step = max(1, (n + 9) // 10)
+    keep = label_indices([lbl for lbl, _ in points])
     for i, lbl, _ in pts:
-        if i % step and i != n - 1:
+        if i not in keep:
             continue
         parts.append(f'<text x="{x(i):.1f}" y="{height - 8}" class="ax" '
                      f'text-anchor="middle">{lbl}</text>')
@@ -710,9 +744,9 @@ def svg_multiline(labels, series, ref=None, width=760, height=240, unit="元/克
                 parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="3" '
                              f'fill="{color}"><title>{tip}</title></circle>')
 
-    step = max(1, (n + 9) // 10)
+    keep = label_indices(labels)
     for i, lbl in enumerate(labels):
-        if i % step and i != n - 1:
+        if i not in keep:
             continue
         parts.append(f'<text x="{x(i):.1f}" y="{height - 8}" class="ax" '
                      f'text-anchor="middle">{lbl}</text>')
@@ -729,12 +763,58 @@ def svg_multiline(labels, series, ref=None, width=760, height=240, unit="元/克
     return '<div class="legend">' + "".join(items) + "</div>" + "".join(parts)
 
 
+REPORT_JS = """<script>
+(function () {
+  var btn = document.getElementById('btn-refresh');
+  var toast = document.getElementById('toast');
+  var meta = document.getElementById('meta');
+  if (!btn) return;
+
+  function say(msg, sticky) {
+    toast.textContent = msg;
+    toast.classList.add('show');
+    if (!sticky) setTimeout(function () { toast.classList.remove('show'); }, 4500);
+  }
+
+  btn.addEventListener('click', function () {
+    var u = new URL(location.href);
+    u.searchParams.set('_', Date.now());          // 绕过 CDN / 浏览器缓存
+    btn.disabled = true;
+    say('正在获取云端最新版本…', true);
+
+    fetch(u.toString(), { cache: 'no-store' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        var re = /生成于 (\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})/;
+        var m = html.match(re);
+        var cur = (meta.textContent.match(re) || [])[1];
+        if (m && m[1] !== cur) { location.replace(u.toString()); return; }
+        btn.disabled = false;
+        say(m ? ('已是最新：云端生成于 ' + m[1]) : '未取到新版本');
+      })
+      .catch(function (e) {
+        btn.disabled = false;
+        say('刷新失败：' + e.message + '（用 file:// 打开时无法联网，请改用 http 地址）');
+      });
+  });
+})();
+</script>"""
+
+
 def build_report():
     rows = read_rows()
     cal = CFG["calibration"]
     target = CFG["target"]
     slots = CFG["slots"]
     names = CFG["slot_names"]
+    step_min = int(CFG.get("slot_step_minutes") or 60)
+    step_txt = f"每 {step_min} 分钟"
+    repo_cfg = CFG.get("repo") or {}
+    actions_url = (f"https://github.com/{repo_cfg['owner']}/{repo_cfg['name']}"
+                   f"/actions/workflows/collect.yml") if repo_cfg else ""
     today = date.today().strftime("%Y-%m-%d")
 
     ok_rows = [r for r in rows if r.get("status") == "ok" and fnum(r.get("est_buy")) is not None]
@@ -1090,12 +1170,35 @@ def build_report():
   details{{margin-top:12px;border-top:1px solid var(--line);padding-top:6px}}
   summary{{color:var(--muted);font-size:12.5px;cursor:pointer;padding:4px 0}}
   summary:hover{{color:var(--fg)}}
+  .topbar{{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}}
+  .acts{{display:flex;gap:8px;flex-wrap:wrap}}
+  .btn{{font:inherit;font-size:13px;padding:7px 14px;border-radius:7px;cursor:pointer;
+       border:1px solid var(--line);background:var(--panel2);color:var(--fg);
+       text-decoration:none;display:inline-flex;align-items:center;gap:6px;transition:.15s}}
+  .btn:hover{{border-color:var(--gold);color:var(--gold)}}
+  .btn:disabled{{opacity:.55;cursor:default}}
+  .btn.primary{{background:linear-gradient(180deg,#3b3120,#2a2418);
+               border-color:#6b5327;color:var(--gold)}}
+  .toast{{position:fixed;left:50%;bottom:26px;transform:translate(-50%,20px);opacity:0;
+         pointer-events:none;background:#22262f;border:1px solid var(--line);color:var(--fg);
+         font-size:13px;padding:9px 16px;border-radius:8px;transition:.2s;z-index:9;
+         max-width:80vw;text-align:center}}
+  .toast.show{{opacity:1;transform:translate(-50%,0)}}
   code{{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12.5px}}
   footer{{color:#6b7280;font-size:12px;margin-top:24px;line-height:1.7}}
 </style></head><body><div class="wrap">
-<h1>积存金价格报表</h1>
-<div class="sub">数据日 {latest['d'] if latest else today} · 生成于 {datetime.now():%Y-%m-%d %H:%M} ·
+<div class="topbar">
+  <div>
+    <h1>积存金价格报表</h1>
+    <div class="sub" id="meta">数据日 {latest['d'] if latest else today} · 生成于 {datetime.now():%Y-%m-%d %H:%M} ·
 来源 {CFG['source']['name']}</div>
+  </div>
+  <div class="acts">
+    <button class="btn primary" id="btn-refresh" type="button">↻ 刷新到最新</button>
+    {'<a class="btn" href="' + actions_url + '" target="_blank" rel="noopener">⚡ 立即采集</a>' if actions_url else ''}
+  </div>
+</div>
+<div class="toast" id="toast"></div>
 
 <div class="cards">
   <div class="card"><div class="k">估算中行买入价（你买入）</div>
@@ -1120,8 +1223,8 @@ def build_report():
 </div>
 
 <section><h2>{today_title}</h2>
-<div class="hint">横轴固定为 <b>{slots[0]} ~ {tail_slot}</b> 的每一个整点。
-金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该整点没采到、按最近一次实采价沿用的填充值（不标数值）。</div>
+<div class="hint">横轴固定为 <b>{slots[0]} ~ {tail_slot}</b> 的每一个 {step_txt} 时点，共 {len(slots)} 个。
+金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该时点没采到、按最近一条真实样本补的值（不标数值）。</div>
 {svg_chart(today_series, ref=target['price'], hollow=today_hollow)}</section>
 
 <section><h2>近 {len(daily_series)} 个交易日 · 日线（当天最后一个采集点即收盘价）</h2>
@@ -1137,10 +1240,11 @@ def build_report():
 <table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th><th style="text-align:right">最低距目标</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
 
-<section><h2>今日明细 · {slots[0]} ~ {tail_slot} 逐小时</h2>
+<section><h2>今日明细 · {slots[0]} ~ {tail_slot} {step_txt}一个点</h2>
 <div class="hint">三条线共用纵轴：金色<b>估算买入</b>、蓝色<b>估算卖出</b>、灰色<b>基准金价</b>。
 卖出与基准只差 {abs(cal['offset_sell']):.2f} 的点差，两条线几乎重合属正常。<br>
-<b>实心点</b>＝该整点真实采集；<b>空心点</b>＝没采到、按最近一次实采价沿用，<b>不是该时点的真实价格</b>。鼠标悬停看数值。</div>
+<b>实心点</b>＝该时点真实采集；<b>空心点</b>＝没采到、按最近一条真实样本补的，<b>不是该时点的真实价格</b>。
+点太密时悬停任意一点仍可看数值。</div>
 {detail_chart}
 <details><summary>展开逐时点数值表（含来源与较上点）</summary>
 <table><thead><tr><th>时点</th><th>名称</th><th style="text-align:right">基准金价</th>
@@ -1151,11 +1255,11 @@ def build_report():
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
 <footer>
-价格来源：{CFG['source']['url']}（公开报价接口，仅工作日，{slots[0]}~{tail_slot} 逐小时采集，共 {len(slots)} 个时点）。<br>
+价格来源：{CFG['source']['url']}（公开报价接口，每天 {slots[0]}~{tail_slot} {step_txt}采集，共 {len(slots)} 个时点）。<br>
 中行积存金价为本程序按标定偏移<b>估算</b>，并非中国银行官方报价；实际成交价、点差与提金费用以中行 App 与柜面为准。<br>
 本报表仅供个人记录与复盘，不构成投资建议，也不保证数据源持续可用或数值准确。
 </footer>
-</div></body></html>
+</div>{REPORT_JS}</body></html>
 """
 
     with open(REPORT_PATH, "w", encoding="utf-8") as f:

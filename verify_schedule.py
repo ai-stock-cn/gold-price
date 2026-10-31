@@ -107,8 +107,11 @@ def run(hhmm):
     return live_slots()
 
 
-def at(slot, plus_min=5):
-    """把 MM:HH 往后推几分钟，模拟「整点过 5 分才触发」。"""
+def at(slot, plus_min=2):
+    """把 HH:MM 往后推 2 分钟，模拟「时点过一会儿才触发」。
+
+    必须小于步长（5 分钟），否则会正好落到下一个时点上，测的就不是同一格了。
+    """
     h, m = map(int, slot.split(":"))
     t = (h * 60 + m + plus_min) % (24 * 60)
     return f"{t // 60:02d}:{t % 60:02d}"
@@ -136,7 +139,7 @@ PROGRESS.append((f"周末凌晨也能采集，写入 {slots[3]}", got == [slots[
 
 head(f"场景2：{at(slots[3], 40)} 重复触发（{slots[3]} 已有真实记录）")
 before = len(today_rows())
-run(at(slots[3], 40))
+run(at(slots[3], 3))
 PROGRESS.append(("同一整点不重复写入", len(today_rows()) == before, len(today_rows())))
 
 head(f"场景3：跳到 {at(slots[mid])} 才触发（中间 {len(slots[4:mid])} 个整点都没采）")
@@ -153,10 +156,12 @@ PROGRESS.append((f"中间 {len(expect_gap)} 个整点被补成 carry",
 PROGRESS.append(("补齐行标记为 carry",
                  all(r.get("src") == "carry" for r in today_rows()
                      if r["slot"] in expect_gap), c))
-early = set(slots[:3])          # 00:00 / 01:00 / 02:00，都早于首条真实记录 03:00
-PROGRESS.append(("早于当天首条真实记录的时点留空，不用未来价回填",
-                 not (early & set(c)), sorted(early & set(c))))
-future = [s for s in c if s > at(slots[mid])]   # 还没到的时点（13:00 之后）
+early = slots[:3]               # 00:00 / 00:05 / 00:10，都早于首条真实记录
+notes = {r["slot"]: (r.get("note") or "") for r in today_rows()}
+PROGRESS.append(("早于首条真实记录的时点用「回填」补，note 里标回填而非沿用",
+                 all(s in notes and notes[s].startswith("回填") for s in early),
+                 {s: notes.get(s, "缺") for s in early}))
+future = [s for s in c if s > at(slots[mid])]   # 还没到的时点
 PROGRESS.append(("晚于当前时刻的时点一律不补，不编造未来价格",
                  future == [], future))
 
@@ -171,27 +176,27 @@ PROGRESS.append((f"收尾时点 {tail} 可被采到", tail in got, got))
 
 head("场景7：收尾点已有记录后再触发")
 before = len(today_rows())
-run(at(tail, 40))
+run(at(tail, 3))
 PROGRESS.append(("同一收尾点不重复写入", len(today_rows()) == before, len(today_rows())))
 
 head("场景8：整天只在最后一小时采过一次")
 clear_today()
-got = run(at(tail, 10))
+got = run(at(tail))
 PROGRESS.append(("整天只采一次也有收尾点", got == [tail], got))
 collect.fill_today()
 covered = sorted({r["slot"] for r in today_rows()})
-# 只有 23:00 一条真实记录，它前面 23 个整点没有任何「已知的过去价」可沿用，
-# 因此全部留空——这是正确的，拿 23:00 的价回填全天等于用未来信息造一条平线。
-PROGRESS.append(("唯一的样本在收尾点，前面的整点全部留空",
-                 covered == [tail], covered))
+# 按用户要求「没采到的用最近的数据回填」：只有一个样本时，全天都会被它补满。
+# 这在视觉上是一条平线，是这条规则的必然代价——所以 note 全部标成「回填」以示区别。
+PROGRESS.append((f"唯一的样本在收尾点，其余 {len(slots) - 1} 个时点全部用回填补满",
+                 covered == slots, len(covered)))
 
-head("场景9：凌晨先采到，之后整天的缺口才允许前向补齐")
+head(f"场景9：先采 {slots[0]} 和 {slots[4]}，中间缺口只前向补齐")
 clear_today()
-run(at(slots[0], 5))              # 00:05 → 00:00
-run(at(slots[4], 5))              # 04:05 → 04:00
+run(at(slots[0]))                # → slots[0]
+run(at(slots[4]))                # → slots[4]
 collect.fill_today()
 filled = sorted({r["slot"] for r in today_rows()})
-PROGRESS.append((f"只补 00:00-04:00 这 5 个整点，05:00 之后不补（共 {len(filled)} 个）",
+PROGRESS.append((f"只补到 {slots[4]}，之后的时点不补（共 {len(filled)} 个）",
                  set(filled) == set(slots[:5]), filled))
 
 head("场景10：全天逐时采集（模拟每小时 cron 都命中）")
@@ -204,7 +209,7 @@ collect.fill_today()
 PROGRESS.append(("全天采满后无需再补 carry", carry_slots() == [], carry_slots()))
 
 head("报表校验")
-set_now(at(tail, 20))
+set_now(at(tail, 3))
 collect.build_report()
 html = open(collect.REPORT_PATH, encoding="utf-8").read()
 intraday = re.search(r"<h2>今日分时.*?</svg>", html, re.S).group(0)
@@ -227,8 +232,8 @@ PROGRESS.append(("日线图包含当天", TODAY[5:] in html, TODAY[5:]))
 
 head("报表：carry 点必须画成空心环，不能被读成实采")
 clear_today()
-run(at(slots[0], 5))          # 00:00 实采
-run(at(slots[4], 5))          # 04:00 实采
+run(at(slots[0]))          # 00:00 实采
+run(at(slots[4]))          # 04:00 实采
 collect.fill_today()          # 01:00-03:00 补成 carry
 set_now(at(slots[4], 30))
 collect.build_report()

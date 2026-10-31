@@ -5,9 +5,10 @@ on:
   # 曾经加过 push 触发做连通性冒烟测试，但它会形成开环：push → 触发生成数据提交 →
   # 下一次 push 被拒 → 又要 rebase，来回打转。要测就用 Actions 页面的 Run workflow。
   schedule:
-    # 每天每小时整点一次，24 次/天，含周末。
-    # 全天覆盖后不再需要按时区换算挑小时段 —— 每小时都命中，UTC 与北京时间的偏差不影响。
-    - cron: "0 * * * *"
+    # 每 5 分钟一次（GitHub 允许的最小间隔），288 次/天，含周末。
+    # ⚠️ 代价：每次运行都会产生一次提交，一天 ~288 次。仓库历史会变密。
+    #    嫌吵就把这里和 config.json 的 slot_step_minutes 一起改成 15 / 30。
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       force:
