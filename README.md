@@ -57,16 +57,17 @@
 纯静态页面**不能**自己持有 GitHub token：公开仓库的页面源码谁都能看，token 写进去等于公开泄露，
 GitHub 还会主动扫描并吊销。所以 token 必须放在服务端。
 
-`docs/dispatch-worker.js` 就是那个服务端——一个 Cloudflare Worker（免费额度足够），
+`worker/dispatch.js` 就是那个服务端——一个 Cloudflare Worker（免费额度足够），
 它持有 token，对浏览器只暴露「触发」这一个动作，不暴露 token 本身：
 
 ```
 报表按钮  --POST-->  Worker  --带 token-->  GitHub API  --dispatch-->  collect 工作流
 ```
 
-部署约 5 分钟，全程网页操作：建 fine-grained PAT（只给该仓库 `Actions: Read and write`）→
-新建 Worker 粘贴代码 → 配两个环境变量（`GH_TOKEN`、`ALLOW_ORIGIN`）→ 把 Worker 地址填进
-`config.json` 的 `repo.dispatch_url` → 重新生成报表。
+部署约 5 分钟：建 fine-grained PAT（只给该仓库 `Actions: Read and write`）→
+在 Cloudflare 建 Worker 并接入本仓库（根目录 `wrangler.toml` 已配好，push 即自动部署）→
+在 Worker 的 Settings 里配两个变量（`GH_TOKEN` 选 Secret、`ALLOW_ORIGIN` 填站点域名）→
+把 Worker 地址填进 `config.json` 的 `repo.dispatch_url` → 重新生成报表。
 
 `dispatch_url` 留空时按钮自动退回「跳转 Actions」的旧行为，两条路都可用。
 ⚠️ `ALLOW_ORIGIN` 只能挡浏览器跨站调用，挡不住 `curl` 伪造。想更严就加 Cloudflare 的

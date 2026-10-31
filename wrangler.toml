@@ -1,0 +1,13 @@
+# Cloudflare Workers 配置
+# 仓库已接入 Workers Builds：push 到 main 后它会执行 `npx wrangler deploy`，
+# 读这个文件决定部署哪个脚本。Worker 名称要和 Cloudflare 上那个项目一致，
+# 否则会新建一个而不是更新原来的。
+
+name = "gold-price"
+main = "worker/dispatch.js"
+compatibility_date = "2025-01-01"
+
+# 环境变量请在 Cloudflare 面板的 Settings → Variables and Secrets 里配置，
+# 不要写进这个文件（会被提交到公开仓库）：
+#   GH_TOKEN      Secret
+#   ALLOW_ORIGIN  Text
