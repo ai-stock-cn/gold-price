@@ -1,14 +1,9 @@
 name: 采集积存金价格
 
 on:
-  # 代码/配置改动后跑一次，顺便当连通性冒烟测试。
-  # 注意：机器人自己用 GITHUB_TOKEN 提交不会触发（GitHub 的规定），所以不会打转。
-  push:
-    branches: [main]
-    paths-ignore:
-      - "data/**"
-      - "report.html"
-      - "index.html"
+  # 只保留「定时」和「手动」两种触发。
+  # 曾经加过 push 触发做连通性冒烟测试，但它会形成开环：push → 触发生成数据提交 →
+  # 下一次 push 被拒 → 又要 rebase，来回打转。要测就用 Actions 页面的 Run workflow。
   schedule:
     # 北京时间 09:00-22:00 每小时整点一次 = UTC 01:00-14:00
     # 周一到周五（UTC 与 CST 在这个时段内同属一天，星期对齐）
