@@ -465,7 +465,9 @@ def fill_today(dry=False):
 
     # 真实记录按整点归位后占用的时点，不再补
     have = {s for s in (real_slot_of(r, slots) for r in real) if s}
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now()
+    now_str = now.strftime("%Y-%m-%d %H:%M:%S")
+    now_hhmm = now.strftime("%H:%M")
 
     def plan_row(s, picked):
         return {
@@ -481,6 +483,10 @@ def fill_today(dry=False):
     plan = []
     for s in slots:
         if s in have:
+            continue
+        if s > now_hhmm:
+            # 还没到的时点一律不补。12:05 就把 13:00~23:00 填上，等于凭空写出未来价格，
+            # 和「用未来价回填过去」是同一种错，只是方向相反。
             continue
         picked = None
         for r in real:                       # 前向沿用：取名义时刻 <= s 的最后一条

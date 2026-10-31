@@ -156,6 +156,9 @@ PROGRESS.append(("补齐行标记为 carry",
 early = set(slots[:3])          # 00:00 / 01:00 / 02:00，都早于首条真实记录 03:00
 PROGRESS.append(("早于当天首条真实记录的时点留空，不用未来价回填",
                  not (early & set(c)), sorted(early & set(c))))
+future = [s for s in c if s > at(slots[mid])]   # 还没到的时点（13:00 之后）
+PROGRESS.append(("晚于当前时刻的时点一律不补，不编造未来价格",
+                 future == [], future))
 
 head("场景5：fill_today 幂等（连跑两次结果不变）")
 n1 = len(today_rows())
@@ -188,8 +191,17 @@ run(at(slots[0], 5))              # 00:05 → 00:00
 run(at(slots[4], 5))              # 04:05 → 04:00
 collect.fill_today()
 filled = sorted({r["slot"] for r in today_rows()})
-PROGRESS.append((f"00:00 之后到 04:00 之间的缺口被补齐（共 {len(filled)} 个整点）",
-                 set(slots[:5]) <= set(filled), filled))
+PROGRESS.append((f"只补 00:00-04:00 这 5 个整点，05:00 之后不补（共 {len(filled)} 个）",
+                 set(filled) == set(slots[:5]), filled))
+
+head("场景10：全天逐时采集（模拟每小时 cron 都命中）")
+clear_today()
+for s in slots:
+    run(at(s, 5))
+got = live_slots()
+PROGRESS.append((f"{len(slots)} 个整点全部是真实记录", got == slots, len(got)))
+collect.fill_today()
+PROGRESS.append(("全天采满后无需再补 carry", carry_slots() == [], carry_slots()))
 
 head("报表校验")
 set_now(at(tail, 20))
@@ -198,9 +210,9 @@ html = open(collect.REPORT_PATH, encoding="utf-8").read()
 intraday = re.search(r"<h2>今日分时.*?</svg>", html, re.S).group(0)
 circles = len(re.findall(r"<circle", intraday))
 PROGRESS.append((f"今日曲线铺满 {len(slots)} 个整点", circles == len(slots), circles))
-PROGRESS.append(("今日曲线区分实心/空心点",
-                 len(re.findall(r'r="3.4"', intraday)) >= 1
-                 and len(re.findall(r'r="2.8"', intraday)) >= 1,
+PROGRESS.append(("全天实采时曲线全是实心点、没有空心点",
+                 len(re.findall(r'r="3.4"', intraday)) == len(slots)
+                 and len(re.findall(r'r="2.8"', intraday)) == 0,
                  (len(re.findall(r'r="3.4"', intraday)),
                   len(re.findall(r'r="2.8"', intraday)))))
 det = re.search(r"<h2>今日明细.*?</tbody>", html, re.S).group(0)
@@ -212,6 +224,20 @@ PROGRESS.append(("日内极值区块已渲染",
 PROGRESS.append((f"今日明细标题覆盖 {slots[0]} ~ {tail}",
                  f"{slots[0]} ~ {tail}" in html, ""))
 PROGRESS.append(("日线图包含当天", TODAY[5:] in html, TODAY[5:]))
+
+head("报表：carry 点必须画成空心环，不能被读成实采")
+clear_today()
+run(at(slots[0], 5))          # 00:00 实采
+run(at(slots[4], 5))          # 04:00 实采
+collect.fill_today()          # 01:00-03:00 补成 carry
+set_now(at(slots[4], 30))
+collect.build_report()
+intra2 = re.search(r"<h2>今日分时.*?</svg>",
+                   open(collect.REPORT_PATH, encoding="utf-8").read(), re.S).group(0)
+solid2 = len(re.findall(r'r="3.4"', intra2))
+hollow2 = len(re.findall(r'r="2.8"', intra2))
+PROGRESS.append(("2 个实采画实心、3 个沿用画空心", (solid2, hollow2) == (2, 3),
+                 (solid2, hollow2)))
 
 head("结果")
 ok = True
