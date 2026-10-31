@@ -62,6 +62,11 @@ jobs:
             python3 collect.py --auto
           fi
 
+      - name: 生成 Pages 入口
+        run: |
+          # GitHub Pages 在分支根目录默认找 index.html，只有 report.html 会 404
+          cp report.html index.html
+
       - name: 提交数据
         run: |
           git config user.name  "gold-price-bot"
