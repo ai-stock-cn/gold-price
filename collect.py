@@ -1082,12 +1082,20 @@ def build_report():
     if not ok_rows:
         warn.append("还没有任何成功采集记录。先在交易时段跑一次 <code>python3 collect.py --force</code>。")
     if carry_rows:
+        # 96 个时点全列出来会糊成一大段，只列前 10 个
+        all_slots = [r["slot"] for r in carry_rows]
+        shown = "、".join(all_slots[:10]) + (f" … 共 {len(all_slots)} 个" if len(all_slots) > 10 else "")
+        # 区分「沿用」（该时点之前已有实采）和「回填」（之前还没有，用之后最早的样本）
+        kinds = {}
+        for r in carry_rows:
+            k = (r.get("note") or "").split(" ")[0] or "补齐"
+            kinds[k] = kinds.get(k, 0) + 1
+        kinds_txt = "、".join(f"{k} {v} 个" for k, v in kinds.items())
         warn.append(
-            f"今日有 <b>{len(carry_rows)}</b> 个时点没有真实采样（"
-            + "、".join(r["slot"] for r in carry_rows)
-            + "），按「<b>最近一次真实报价</b>」沿用填充：值为该时点之前最后一次实采价，"
-            "<b>不是该时点的真实价格</b>。报表里这些行显示为灰色，日线与收盘价也不采用它们。"
-            "想让这些点变成真值，只能在对应整点跑一次采集。")
+            f"今日有 <b>{len(carry_rows)}</b> 个时点没有真实采样（{shown}），"
+            f"按「<b>最近的一条真实样本</b>」补齐（{kinds_txt}）："
+            "<b>不是该时点的真实价格</b>，报表里灰色显示，日线与收盘价都不采用。"
+            "想让这些点变成真值，只能在对应时点跑一次采集。")
     if fail_today:
         warn.append(f"今日有 {len(fail_today)} 次采集失败，明细见 CSV 的 note 列。")
     if today_is_latest:
@@ -1278,9 +1286,9 @@ def main():
     ap.add_argument("--sync-extremes", action="store_true",
                     help="只同步上金所日内开/收/最高/最低并重建报表，不做分时采集")
     ap.add_argument("--fill-today", action="store_true",
-                    help="不采集，只把今天缺失的整点用最近一次实采价补齐并重建报表")
+                    help="不采集，只把今天缺失的时点用最近一条真实样本补齐并重建报表")
     ap.add_argument("--no-fill", action="store_true",
-                    help="采集后不自动补齐今日缺失整点")
+                    help="采集后不自动补齐今日缺失时点")
     args = ap.parse_args()
 
     migrate_csv()
