@@ -3,11 +3,14 @@ name: 发布报表到 Pages
 on:
   # 首次发布/补发时手动点一下
   workflow_dispatch:
-  # 每次「采集积存金价格」跑完就跟着重新发布，不用另设 cron，天然和数据同步
-  workflow_run:
-    workflows: ["采集黄金实时金价"]
-    types: [completed]
-    branches: [main]
+  # 每次「采集黄金实时金价」跑完就跟着重新发布，不用另设 cron，天然和数据同步。
+  # ⚠️ 2026-10-31 暂时停用：仓库的 Pages 还没启用，而 collaborator 无权开启，
+  #    这条链每跑一次就红一次（configure-pages 403）。等仓库主人在
+  #    Settings → Pages → Source 选「GitHub Actions」之后，把下面四行放开即可。
+  # workflow_run:
+  #   workflows: ["采集黄金实时金价"]
+  #   types: [completed]
+  #   branches: [main]
 
 permissions:
   contents: read
