@@ -220,10 +220,7 @@ PROGRESS.append(("全天实采时曲线全是实心点、没有空心点",
                  and len(re.findall(r'r="2.8"', intraday)) == 0,
                  (len(re.findall(r'r="3.4"', intraday)),
                   len(re.findall(r'r="2.8"', intraday)))))
-det = re.search(r"<h2>今日明细.*?</tbody>", html, re.S).group(0)
-n_detail = len([1 for m in re.findall(r'<tr(?: class="\w+")?>(.*?)</tr>', det, re.S)
-                if len(re.findall(r"<td[^>]*>", m)) >= 5])
-PROGRESS.append((f"今日明细 {len(slots)} 行", n_detail == len(slots), n_detail))
+PROGRESS.append(("逐时点明细表已移除", "逐时点数值表" not in html, ""))
 PROGRESS.append(("日内极值区块已渲染",
                  bool(re.search(r"<h2>日内极值[^<]*</h2>", html)), True))
 PROGRESS.append((f"今日明细标题覆盖 {slots[0]} ~ {tail}",

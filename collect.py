@@ -1180,69 +1180,8 @@ def build_report():
             return ""
         return "▲" if v > 0 else ("▼" if v < 0 else "＝")
 
-    # ---- 今日明细行：14 个整点全量铺开，真实 / 沿用 / 缺失 三态分明
-    detail_rows = []
-    shown = []                       # 已渲染的值，用于算「较上点」
-    for s in slots:
-        r = today_map.get(s)
-        c = carry_map.get(s)
-        if r:
-            chg = ""
-            if shown:
-                d0 = fnum(r["cur"]) - shown[-1]
-                chg = f'<span class="{cls(d0)}">{arrow(d0)} {d0:+.2f}</span>'
-            shown.append(fnum(r["cur"]))
-            nt = nominal_time(r)
-            tsm = r["ts"][11:16]
-            src_txt = f"{nt} 实采" if nt == tsm else f"{nt} · {tsm} 取值"
-            detail_rows.append(
-                f'<tr><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num strong">{fmt(fnum(r["cur"]))}</td>'
-                f'<td class="num">{chg}</td>'
-                f'<td class="num muted">{src_txt}</td></tr>')
-        elif c:
-            v = fnum(c["cur"])
-            chg = ""
-            if shown and v is not None:
-                d0 = v - shown[-1]
-                chg = f'<span class="muted">{arrow(d0)} {d0:+.2f}</span>' if abs(d0) > 0.004 \
-                    else '<span class="muted">＝</span>'
-            if v is not None:
-                shown.append(v)
-            detail_rows.append(
-                f'<tr class="carry"><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num">{fmt(v)}</td>'
-                f'<td class="num">{chg}</td>'
-                f'<td class="num muted">{c.get("note") or "沿用"}</td></tr>')
-        else:
-            # 还没到点的时点留空，比编一个数诚实
-            detail_rows.append(
-                f'<tr class="miss"><td>{s}</td><td>{names.get(s, "")}</td>'
-                f'<td class="num">—</td><td class="num">—</td>'
-                f'<td class="num">—</td></tr>')
-
-    # 归不到任何整点的记录（早于 09:00 的手动采集等）单独列在末尾
-    for r in today_rows:
-        if real_slot_of(r, slots) is not None:
-            continue
-        detail_rows.append(
-            f'<tr class="extra"><td>{r["ts"][11:16]}</td><td>手动采集</td>'
-            f'<td class="num strong">{fmt(fnum(r["cur"]))}</td>'
-            f'<td class="num muted">—</td>'
-            f'<td class="num muted">{r["ts"][11:]}</td></tr>')
-
     done_cnt = len([s for s in slots if s in today_map])
 
-    # 今日明细折线：只画实时金价一条线（用户已不关心中行估算价）。
-    detail_prices = []
-    for s in slots:
-        src = today_map.get(s) or carry_map.get(s)
-        detail_prices.append(fnum(src["cur"]) if src else None)
-    detail_chart = svg_multiline(
-        list(slots),
-        [("实时金价", "#e0b354", detail_prices)],
-        height=250, hollow=today_hollow,
-        empty="今天还没有采集到数据，首次采集后这里自动出现曲线。")
 
     carry_cnt = len([s for s in slots if s in carry_map])
     today_title = (f"今日分时 · 标准时点 {done_cnt}/{len(slots)} 实采"
@@ -1417,16 +1356,6 @@ def build_report():
 <details><summary>展开逐日数值表（最低 / 最高 / 收盘）</summary>
 <table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
-
-<section><h2>今日明细 · {slots[0]} ~ {tail_slot} {step_txt}一个点</h2>
-<div class="hint">金色线＝<b>实时金价</b>（源站基准价，元/克）。<br>
-<b>实心点</b>＝该时点真实采集；<b>空心点</b>＝没采到、按最近一条真实样本补的，<b>不是该时点的真实价格</b>。
-点太密时悬停任意一点仍可看数值。</div>
-{detail_chart}
-<details><summary>展开逐时点数值表（含来源与较上点）</summary>
-<table><thead><tr><th>时点</th><th>名称</th><th style="text-align:right">实时金价</th>
-<th style="text-align:right">较上点</th><th style="text-align:right">来源</th></tr></thead>
-<tbody>{''.join(detail_rows)}</tbody></table></details></section>
 
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
