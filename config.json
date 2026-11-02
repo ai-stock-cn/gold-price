@@ -41,14 +41,14 @@
     "note": "offset = 中行报价 − 源站 cur，标定时一次性算出。银行或源站调整加点后需重新标定。"
   },
   "remote": {
-    "url": "",
-    "price_url": "",
+    "url": "https://gold-price.bang325.workers.dev/data",
+    "price_url": "https://gold-price.bang325.workers.dev/price",
     "note": "填 Worker 的 /data 地址（如 https://xxx.workers.dev/data）。填了之后每次采集前会先把云端 15 分钟的点回灌进 CSV。"
   },
   "repo": {
     "owner": "ai-stock-cn",
     "name": "gold-price",
-    "dispatch_url": "",
+    "dispatch_url": "https://gold-price.bang325.workers.dev/",
     "note": "dispatch_url 填上代理服务地址（见 worker/dispatch.js）后，「立即采集」会一键触发云端采集；留空则退回跳到 Actions 页面。"
   },
   "files": {
