@@ -28,7 +28,7 @@
 | 触发 | **每 15 分钟**，96 次/天，含周末（cron `*/15 * * * *`） |
 | 时区 | 必须设 `TZ=Asia/Shanghai`——runner 默认 UTC，不设会把 09:00 记成 01:00 |
 | 流程 | 采集 → 生成报表 → 复制 `index.html` → 把新数据 commit 回本仓库 |
-| 报表 | <https://bang325.github.io/gold-price/> |
+| 报表 | <https://ai-stock-cn.github.io/gold-price/> |
 
 几个云端专属的事实：
 
