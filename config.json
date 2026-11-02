@@ -40,6 +40,10 @@
     "offset_sell": -0.97,
     "note": "offset = 中行报价 − 源站 cur，标定时一次性算出。银行或源站调整加点后需重新标定。"
   },
+  "fee": {
+    "spread": 17.0,
+    "note": "中行积存金买入相对源站基准价的点差（含手续费），约 17 元/克。报表里只做展示，不参与任何统计。"
+  },
   "remote": {
     "url": "https://gold-price.bang325.workers.dev/data",
     "price_url": "https://gold-price.bang325.workers.dev/price",

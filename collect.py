@@ -1088,6 +1088,10 @@ def build_report():
     prev_diff = (cur_price - prev_price) if (cur_price is not None and prev_price is not None) else None
     prev_pct = (prev_diff / prev_price * 100) if (prev_diff is not None and prev_price) else None
 
+    # 含手续费价：实时金价 + 中行点差。只做展示，不参与任何统计与图表。
+    fee_spread = float((CFG.get("fee") or {}).get("spread") or 0)
+    fee_price = (cur_price + fee_spread) if cur_price is not None else None
+
     # ---- 日内极值：上金所日线里当天<b>真实触及过</b>的最低/最高。
     #      比每小时若干次采样可靠得多——只要当天到过某个价，这里一定留痕。
     ex_rows = extreme_rows(15)
@@ -1382,6 +1386,9 @@ def build_report():
   <div class="card" id="card-price"><div class="k">实时金价（元/克）</div>
     <div class="v" id="card-price-val">{fmt(cur_price)}</div>
     <div class="d">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
+  <div class="card"><div class="k">含手续费价（+{fee_spread:.0f}）</div>
+    <div class="v">{fmt(fee_price)}</div>
+    <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 中行约数</div></div>
   <div class="card"><div class="k">今日较首点</div>
     <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
     <div class="d">{'—' if day_pct is None else f'{day_pct:+.2f}%'} · 首点 {fmt(day_first)}</div></div>
