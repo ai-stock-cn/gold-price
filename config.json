@@ -40,6 +40,10 @@
     "offset_sell": -0.97,
     "note": "offset = 中行报价 − 源站 cur，标定时一次性算出。银行或源站调整加点后需重新标定。"
   },
+  "remote": {
+    "url": "",
+    "note": "填 Worker 的 /data 地址（如 https://xxx.workers.dev/data）。填了之后每次采集前会先把云端 15 分钟的点回灌进 CSV。"
+  },
   "repo": {
     "owner": "ai-stock-cn",
     "name": "gold-price",

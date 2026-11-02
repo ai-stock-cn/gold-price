@@ -79,6 +79,30 @@ GitHub 还会主动扫描并吊销。所以 token 必须放在服务端。
 实测被节流到 **3～7 小时一次**（配的是 `*/15`，实际间隔 3.1h / 3.9h / 4.4h / 7.1h 都出现过），
 根本拿不到 15 分钟粒度。Worker 的 Cron 才是可靠来源。
 
+### 没有 GitHub token 也能跑（推荐路径）
+
+上面那条需要 PAT。如果拿不到 PAT（例如仓库属于他人个人账号、fine-grained 选不到；
+或账号策略禁用个人令牌），走这条**完全不需要 GitHub token**的路：
+
+```
+Cloudflare Worker  Cron 每 15 分钟
+     POST 源站 JSON 接口 /page/board  →  {code:200, data:{cur:"838.40",...}}
+     把点写进 Workers KV（绑定名 GOLD_KV）
+              ↓ GET /data
+GitHub Actions（它自己有几小时一次的 schedule）
+     collect.py 采集前先 ingest_remote() 拉回 KV 里的点
+     缺失的补进 CSV（标 src=live、note=云端 Worker 采集）
+     再用自带的 GITHUB_TOKEN 提交
+```
+
+要点：
+
+- **Worker 全程不碰 GitHub**，只需要源站可达 + 一个 KV 命名空间，所以没有 token 问题。
+- GitHub 的 schedule 虽然被节流到 3～7 小时一次，但每次运行都会把这段时间内
+  Worker 存下的 15 分钟点**全部补回来**，数据仍然连续。
+- `collect.py` 在每次采集前调用 `ingest_remote()`，读 `config.json` 的 `remote.url`；
+  留空则整段跳过。幂等：已存在的 `(日期, 时点)` 不会重复写。
+
 `dispatch_url` 留空时按钮自动退回「跳转 Actions」的旧行为，两条路都可用。
 ⚠️ `ALLOW_ORIGIN` 只能挡浏览器跨站调用，挡不住 `curl` 伪造。想更严就加 Cloudflare 的
 Rate Limiting 规则，或改成带路径密钥的形式。

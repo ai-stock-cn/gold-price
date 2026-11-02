@@ -230,6 +230,58 @@ def sync_extremes(quiet=False):
     return trimmed
 
 
+def ingest_remote(url=None, timeout=25):
+    """把云端 Worker 采集到的点补进 CSV。
+
+    Worker 的 cron 每 15 分钟抓一次源站并存进 KV，GitHub 的 schedule 却被节流到
+    几小时一次。这里在每次采集前把 KV 里的点全量拉回来，缺哪个补哪个——
+    这些是 Worker 当时真实抓到的价，所以记为 live，不是 carry。
+
+    这样即使 GitHub 一整天只跑了两三次，数据仍然是 15 分钟一个点。
+    """
+    url = url or ((CFG.get("remote") or {}).get("url") or "")
+    if not url:
+        return 0
+
+    req = urllib.request.Request(url, headers={"User-Agent": UA})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            obj = json.loads(resp.read().decode("utf-8", "replace"))
+    except Exception as e:  # noqa: BLE001
+        log(f"云端数据拉取失败（跳过，不影响本地采集）：{type(e).__name__}: {e}")
+        return 0
+
+    pts = obj.get("points") or []
+    rows = read_rows()
+    have = {(r["d"], r["slot"]) for r in rows if r.get("src", SRC_LIVE) in REAL_SRCS}
+
+    added = 0
+    for p in pts:
+        ts = (p.get("ts") or "").strip()
+        d = ts[:10] or (obj.get("date") or "")
+        slot = (p.get("slot") or "").strip()
+        cur = p.get("cur")
+        if not d or not slot or cur is None or (d, slot) in have:
+            continue
+        append_row({
+            "ts": ts or f"{d} {slot}:00",
+            "d": d, "slot": slot,
+            "cur": f"{float(cur):.2f}",
+            "sel": "" if p.get("sel") is None else f"{float(p['sel']):.2f}",
+            "buy": "" if p.get("buy") is None else f"{float(p['buy']):.2f}",
+            "acc": "" if p.get("acc") is None else f"{float(p['acc']):.2f}",
+            "est_buy": "", "est_sell": "",
+            "status": "ok",
+            "note": "云端 Worker 采集",
+            "src": SRC_LIVE,
+        })
+        have.add((d, slot))
+        added += 1
+
+    log(f"云端回灌：拉到 {len(pts)} 个点，新增 {added} 行")
+    return added
+
+
 def smoke():
     """探测两个数据源是否可达，结果写 data/smoke.json。
 
@@ -807,7 +859,7 @@ def svg_multiline(labels, series, ref=None, width=760, height=240, unit="元/克
     return '<div class="legend">' + "".join(items) + "</div>" + "".join(parts)
 
 
-REPORT_JS = """<script>
+REPORT_JS = r"""<script>
 (function () {
   var btn = document.getElementById('btn-refresh');
   var toast = document.getElementById('toast');
@@ -1415,6 +1467,8 @@ def main():
         if args.sync_extremes:
             sync_extremes()
         elif not args.report and not args.fill_today:
+            # 先把云端 Worker 已经采到的点补进来，再决定要不要自己发请求
+            ingest_remote()
             collect(force=args.force, auto=args.auto)
         if not args.no_fill:
             fill_today()
