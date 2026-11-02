@@ -1088,8 +1088,6 @@ def build_report():
     prev_diff = (cur_price - prev_price) if (cur_price is not None and prev_price is not None) else None
     prev_pct = (prev_diff / prev_price * 100) if (prev_diff is not None and prev_price) else None
 
-    gap = (cur_price - target["price"]) if cur_price is not None else None
-
     # ---- 日内极值：上金所日线里当天<b>真实触及过</b>的最低/最高。
     #      比每小时若干次采样可靠得多——只要当天到过某个价，这里一定留痕。
     ex_rows = extreme_rows(15)
@@ -1102,36 +1100,29 @@ def build_report():
     if today_pts:
         ex_low, low_slot = min(today_pts, key=lambda x: (x[0], x[1]))
         ex_high = max(v for v, _ in today_pts)
-        ex_low_gap = ex_low - target["price"]
-        ex_low_cls = "down" if ex_low_gap <= 0 else ""
-        hit_txt = ("<b>已触及目标</b>" if ex_low_gap <= 0 else f"距目标 +{ex_low_gap:.2f}")
-        ex_low_sub = f"今日 <b>{low_slot}</b> 触及 · 区间 {fmt(ex_low)} ~ {fmt(ex_high)} · {hit_txt}"
+        ex_low_cls = ""
+        ex_low_sub = f"今日 <b>{low_slot}</b> 触及 · 区间 {fmt(ex_low)} ~ {fmt(ex_high)}"
     else:
-        ex_low = ex_high = ex_low_gap = None
+        ex_low = ex_high = None
         ex_low_cls = ""
         ex_low_sub = "今日还没有采集数据"
 
     ext_rows_html = []
     for d, op, cl, lo, hi in ex_rows:
-        gp = lo - target["price"]
-        hit = gp <= 0
-        row_cls = ' class="hit"' if hit else ""
         today_tag = ' <span class="tag">今日</span>' if d == today else ""
         ext_rows_html.append(
-            f"<tr{row_cls}><td>{d}{today_tag}</td>"
+            f"<tr><td>{d}{today_tag}</td>"
             f'<td class="num strong">{fmt(lo)}</td>'
             f'<td class="num">{fmt(hi)}</td>'
-            f'<td class="num">{fmt(cl)}</td>'
-            f'<td class="num {"down" if hit else "muted"}">{fmt(gp)}</td></tr>')
+            f'<td class="num">{fmt(cl)}</td></tr>')
     ext_body = "".join(ext_rows_html)
     if not ext_body:
-        ext_body = ('<tr><td colspan="5" class="muted">还没有极值记录，'
+        ext_body = ('<tr><td colspan="4" class="muted">还没有极值记录，'
                     '跑一次 <code>python3 collect.py --sync-extremes</code> 拉取。</td></tr>')
     best_day = min(ex_rows, key=lambda x: x[3]) if ex_rows else None
     if best_day:
-        b_gap = best_day[3] - target["price"]
         best_txt = (f"<b>{best_day[0]}</b> 是近 {len(ex_rows)} 个交易日里日内最低的一天："
-                    f"<b>{fmt(best_day[3])}</b> 元/克，距目标 <b>+{b_gap:.2f}</b> 元。")
+                    f"<b>{fmt(best_day[3])}</b> 元/克。")
     else:
         best_txt = ""
 
@@ -1144,7 +1135,7 @@ def build_report():
         [("日内最低", "#2f9e68", [x[3] for x in ex_chrono]),
          ("日内最高", "#e5484d", [x[4] for x in ex_chrono]),
          ("日线收盘", "#e0b354", [x[2] for x in ex_chrono])],
-        ref=target["price"], height=240, band=(0, 1, "#8b949e"),
+        height=240, band=(0, 1, "#8b949e"),
         empty="还没有极值记录，跑一次 "
               "<code>python3 collect.py --sync-extremes</code> 拉取。")
 
@@ -1246,7 +1237,7 @@ def build_report():
     detail_chart = svg_multiline(
         list(slots),
         [("实时金价", "#e0b354", detail_prices)],
-        ref=target["price"], height=250, hollow=today_hollow,
+        height=250, hollow=today_hollow,
         empty="今天还没有采集到数据，首次采集后这里自动出现曲线。")
 
     carry_cnt = len([s for s in slots if s in carry_map])
@@ -1397,9 +1388,6 @@ def build_report():
   <div class="card"><div class="k">较上一交易日</div>
     <div class="v {cls(prev_diff)}">{arrow(prev_diff)} {fmt(abs(prev_diff) if prev_diff is not None else None)}</div>
     <div class="d">{'—' if prev_pct is None else f'{prev_pct:+.2f}%'} · 上日{'收盘' if prev_is_tail else '末点'} {fmt(prev_price)}</div></div>
-  <div class="card"><div class="k">距目标 {target['price']:.2f}</div>
-    <div class="v {'up' if (gap or 0) > 0 else 'down'}">{fmt(gap)}</div>
-    <div class="d">{'仍高于目标' if (gap or 0) > 0 else '已低于目标'} · 目标 {target['price']:.2f} 元/克</div></div>
   <div class="card"><div class="k">今日日内最低（实时）</div>
     <div class="v {ex_low_cls}">{fmt(ex_low)}</div>
     <div class="d">{ex_low_sub}</div></div>
@@ -1408,23 +1396,23 @@ def build_report():
 <section><h2>{today_title}</h2>
 <div class="hint">横轴固定为 <b>{slots[0]} ~ {tail_slot}</b> 的每一个 {step_txt} 时点，共 {len(slots)} 个。
 金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该时点没采到、按最近一条真实样本补的值（不标数值）。</div>
-{svg_chart(today_series, ref=target['price'], hollow=today_hollow)}</section>
+{svg_chart(today_series, hollow=today_hollow)}</section>
 
 <section><h2>近 {len(daily_series)} 个交易日 · 日线（当天最后一个采集点即收盘价）</h2>
 <div class="hint">每天<b>最后一个采集点</b>作为当日收盘价，漏掉的中间时点会被下一次采集自动补齐；采到 <b>{tail_slot}</b> 尾盘即视为定盘，此前用最新一条并标 <b>~</b>{' · 带 * 的日期为日线回溯（收盘价），非分时实采' if n_daily else ''}</div>
-{svg_chart(daily_series, ref=target['price'], height=200)}</section>
+{svg_chart(daily_series, height=200)}</section>
 
 <section><h2>日内极值 · 近 {len(ex_rows)} 个交易日</h2>
 <div class="hint">取自上海黄金交易所 Au99.99 日线，是当天<b>真实触及过</b>的最低/最高价，原始价、不做换算。它比每 {step_min} 分钟一次采样可靠——哪怕低点只闪了一瞬间也会留痕。<br>
-灰带＝当日<b>最低~最高</b>的波动区间，带子越宽当天波动越大；虚线为 {target['price']:.2f} 目标价。鼠标悬停任一点可看数值。<br>
+灰带＝当日<b>最低~最高</b>的波动区间，带子越宽当天波动越大。鼠标悬停任一点可看数值。<br>
 （上金所日线与本表统计口径不同步，极端情况下可能出现「当前价低于今日日内最低」，以本表的日线口径为准。）{best_txt}</div>
 {ex_chart}
-<details><summary>展开逐日数值表（最低 / 最高 / 收盘 / 距目标）</summary>
-<table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th><th style="text-align:right">最低距目标</th></tr></thead>
+<details><summary>展开逐日数值表（最低 / 最高 / 收盘）</summary>
+<table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
 
 <section><h2>今日明细 · {slots[0]} ~ {tail_slot} {step_txt}一个点</h2>
-<div class="hint">金色线＝<b>实时金价</b>（源站基准价，元/克）；虚线为 {target['price']:.2f} 目标价。<br>
+<div class="hint">金色线＝<b>实时金价</b>（源站基准价，元/克）。<br>
 <b>实心点</b>＝该时点真实采集；<b>空心点</b>＝没采到、按最近一条真实样本补的，<b>不是该时点的真实价格</b>。
 点太密时悬停任意一点仍可看数值。</div>
 {detail_chart}
