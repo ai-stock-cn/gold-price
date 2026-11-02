@@ -7,14 +7,17 @@
  * 「触发一次采集」这一个动作，拿不到 token 本身。
  *
  * 环境变量（在 Cloudflare → Worker → Settings → Variables and Secrets 配置）：
- *   GH_TOKEN      fine-grained PAT，仅需该仓库 Actions: Read and write   （类型：Secret）
- *   ALLOW_ORIGIN  允许的页面来源，如 https://bang325.github.io            （类型：Text）
- *   REPO          可选，默认 bang325/gold-price
+ *   GH_TOKEN      fine-grained PAT，仅需该仓库 Actions: Read and write      （类型：Secret）
+ *   ALLOW_ORIGIN  允许的页面来源，如 https://ai-stock-cn.github.io          （类型：Text）
+ *   REPO          可选，默认 ai-stock-cn/gold-price
  *   WORKFLOW      可选，默认 collect.yml
  *   REF           可选，默认 main
  *
- * 部署方式：本仓库已接入 Workers Builds，push 到 main 即自动构建部署
- * （构建命令 npx wrangler deploy，配置见根目录 wrangler.toml）。
+ * 部署方式：Cloudflare 的 GitHub App 只能装在自有账号或自己管理的组织上，无法连到
+ * ai-stock-cn 这种他人个人账号，所以**不要**用 Git 集成，直接在面板 Edit code 粘贴本文件
+ * 内容后 Deploy，并在 Settings → Trigger events 里手动加 cron（每 15 分钟）。
+ * cron 表达式写 0,15,30,45 * * * *，等价于每 15 分钟，且不含会提前闭合块注释的字符。
+ * （根目录 wrangler.toml 保留着，供将来换成自有账号时用 wrangler deploy 部署。）
  */
 
 const DEFAULTS = {
