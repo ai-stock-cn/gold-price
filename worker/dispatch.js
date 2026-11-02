@@ -22,7 +22,51 @@ const DEFAULTS = {
   REF: 'main',
 };
 
+/**
+ * 核心动作：调 GitHub 的 workflow_dispatch。HTTP 请求和定时器都走这里。
+ */
+async function triggerWorkflow(env, cors) {
+  if (!env.GH_TOKEN) {
+    return json({ ok: false, error: 'GH_TOKEN 未配置' }, 500, cors);
+  }
+  const repo = env.REPO || DEFAULTS.REPO;
+  const wf = env.WORKFLOW || DEFAULTS.WORKFLOW;
+  const ref = env.REF || DEFAULTS.REF;
+
+  const resp = await fetch(
+    `https://api.github.com/repos/${repo}/actions/workflows/${wf}/dispatches`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.GH_TOKEN}`,
+        Accept: 'application/vnd.github+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'gold-price-dispatch-worker',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+      body: JSON.stringify({ ref }),
+    }
+  );
+
+  // 触发成功时 GitHub 返回 204 No Content
+  if (resp.status === 204) {
+    return json({ ok: true, repo, workflow: wf, ref }, 200, cors);
+  }
+  const text = (await resp.text()).slice(0, 300);
+  return json({ ok: false, status: resp.status, detail: text }, 502, cors);
+}
+
 export default {
+  /**
+   * 定时触发：wrangler.toml 里配了 crons 就会按点调用这里。
+   * GitHub 自己的 schedule 被节流到 3~7 小时一次，这个才是真正的 15 分钟源。
+   */
+  async scheduled(event, env, ctx) {
+    const res = await triggerWorkflow(env, {});
+    const body = await res.text();
+    console.log(`[cron ${new Date(event.scheduledTime).toISOString()}] ${res.status} ${body}`);
+  },
+
   async fetch(request, env) {
     const origin = env.ALLOW_ORIGIN || '*';
     const cors = {
@@ -45,35 +89,7 @@ export default {
     if (env.ALLOW_ORIGIN && reqOrigin && reqOrigin !== env.ALLOW_ORIGIN) {
       return json({ ok: false, error: 'origin not allowed' }, 403, cors);
     }
-    if (!env.GH_TOKEN) {
-      return json({ ok: false, error: 'GH_TOKEN 未配置' }, 500, cors);
-    }
-
-    const repo = env.REPO || DEFAULTS.REPO;
-    const wf = env.WORKFLOW || DEFAULTS.WORKFLOW;
-    const ref = env.REF || DEFAULTS.REF;
-
-    const resp = await fetch(
-      `https://api.github.com/repos/${repo}/actions/workflows/${wf}/dispatches`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${env.GH_TOKEN}`,
-          Accept: 'application/vnd.github+json',
-          'Content-Type': 'application/json',
-          'User-Agent': 'gold-price-dispatch-worker',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        body: JSON.stringify({ ref }),
-      }
-    );
-
-    // 触发成功时 GitHub 返回 204 No Content
-    if (resp.status === 204) {
-      return json({ ok: true, repo, workflow: wf, ref }, 200, cors);
-    }
-    const text = (await resp.text()).slice(0, 300);
-    return json({ ok: false, status: resp.status, detail: text }, 502, cors);
+    return triggerWorkflow(env, cors);
   },
 };
 

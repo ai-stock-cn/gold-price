@@ -11,3 +11,9 @@ compatibility_date = "2025-01-01"
 # 不要写进这个文件（会被提交到公开仓库）：
 #   GH_TOKEN      Secret
 #   ALLOW_ORIGIN  Text
+
+# 定时触发器：每 15 分钟直接调一次 GitHub workflow_dispatch。
+# 这是真正可靠的 15 分钟来源 —— GitHub 自己的 schedule 被节流到 3~7 小时一次。
+# 时区是 UTC，但 */15 与北京时间的整点对齐（偏移 8 小时是整小时）。
+[triggers]
+crons = ["*/15 * * * *"]
