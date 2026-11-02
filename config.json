@@ -42,6 +42,7 @@
   },
   "remote": {
     "url": "",
+    "price_url": "",
     "note": "填 Worker 的 /data 地址（如 https://xxx.workers.dev/data）。填了之后每次采集前会先把云端 15 分钟的点回灌进 CSV。"
   },
   "repo": {

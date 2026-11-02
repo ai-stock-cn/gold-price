@@ -872,29 +872,80 @@ REPORT_JS = r"""<script>
     if (!sticky) setTimeout(function () { toast.classList.remove('show'); }, 4500);
   }
 
-  btn.addEventListener('click', function () {
-    var u = new URL(location.href);
-    u.searchParams.set('_', Date.now());          // 绕过 CDN / 浏览器缓存
-    btn.disabled = true;
-    say('正在获取云端最新版本…', true);
+  function genOf(html) {
+    var m = html.match(/生成于 (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/);
+    return m ? m[1] : null;
+  }
 
-    fetch(u.toString(), { cache: 'no-store' })
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        return r.text();
-      })
+  function bumpPrice(v) {
+    var el = document.getElementById('card-price-val');
+    var card = document.getElementById('card-price');
+    if (!el) return;
+    el.textContent = Number(v).toFixed(2);
+    var d = card && card.querySelector('.d');
+    if (d) d.textContent = '刚刚 · 云端现抓';
+  }
+
+  function checkPublished(tag) {
+    var u = new URL(location.href);
+    u.searchParams.set('_', Date.now());
+    return fetch(u.toString(), { cache: 'no-store' })
+      .then(function (r) { return r.text(); })
       .then(function (html) {
-        var re = /生成于 (\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2})/;
-        var m = html.match(re);
-        var cur = (meta.textContent.match(re) || [])[1];
-        if (m && m[1] !== cur) { location.replace(u.toString()); return; }
-        btn.disabled = false;
-        say(m ? ('已是最新：云端生成于 ' + m[1]) : '未取到新版本');
-      })
-      .catch(function (e) {
-        btn.disabled = false;
-        say('刷新失败：' + e.message + '（用 file:// 打开时无法联网，请改用 http 地址）');
+        var remote = genOf(html);
+        var cur = genOf(meta.textContent);
+        if (remote && remote !== cur) { location.replace(u.toString()); return true; }
+        say(tag + '，云端报表暂未出新版本（当前 ' + (cur || '?') + '）', false);
+        return false;
       });
+  }
+
+  // 一个按钮承担三件事，按配置自动降级：
+  //   ① data-dispatch 有值 → 触发云端采集（需要 GH_TOKEN）
+  //   ② data-price    有值 → 现抓源站，把卡片数字就地刷新（不需要 token）
+  //   ③ 无论如何 → 比对已发布版本，有新就重载
+  btn.addEventListener('click', function () {
+    btn.disabled = true;
+    var dispatchUrl = btn.getAttribute('data-dispatch') || '';
+    var priceUrl = btn.getAttribute('data-price') || '';
+    var step = Promise.resolve();
+
+    if (dispatchUrl) {
+      say('正在触发云端采集…', true);
+      step = step.then(function () {
+        return fetch(dispatchUrl, { method: 'POST', mode: 'cors' })
+          .then(function (r) {
+            return r.text().then(function (t) { return { ok: r.ok, status: r.status, body: t }; });
+          })
+          .then(function (res) {
+            if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.body.slice(0, 60));
+            say('已触发采集，等待云端出结果…', true);
+            return new Promise(function (ok) { setTimeout(ok, 45000); });
+          });
+      });
+    }
+
+    if (priceUrl) {
+      step = step.then(function () {
+        return fetch(priceUrl, { cache: 'no-store', mode: 'cors' })
+          .then(function (r) { return r.json(); })
+          .then(function (d) {
+            if (d && d.ok && d.price && d.price.cur != null) {
+              bumpPrice(d.price.cur);
+              say('实时金价 ' + Number(d.price.cur).toFixed(2)
+                  + '（云端现抓 ' + String(d.at).slice(11, 16) + '）', false);
+            }
+          })
+          .catch(function () { /* 取不到实时价不影响版本比对 */ });
+      });
+    } else if (!dispatchUrl) {
+      say('正在检查最新版本…', true);
+    }
+
+    step
+      .then(function () { return checkPublished(dispatchUrl ? '采集已触发' : '已是最新'); })
+      .catch(function (e) { say('失败：' + e.message, false); })
+      .then(function () { btn.disabled = false; });
   });
 })();
 </script>
@@ -931,55 +982,7 @@ REPORT_JS = r"""<script>
   window.addEventListener('scroll', hide, true);
 })();
 </script>
-<script>
-// 「立即采集」：配了代理服务就一键触发云端 workflow，没配就退化成跳转（服务端渲染时就已分流）。
-(function () {
-  var btn = document.getElementById('btn-collect');
-  if (!btn) return;
-  var url = btn.getAttribute('data-url');
-  var toast = document.getElementById('toast');
-  if (!url || !toast) return;
-
-  function say(msg, sticky) {
-    toast.textContent = msg;
-    toast.classList.add('show');
-    if (!sticky) setTimeout(function () { toast.classList.remove('show'); }, 6000);
-  }
-
-  btn.addEventListener('click', function () {
-    btn.disabled = true;
-    say('正在触发云端采集…', true);
-    fetch(url, { method: 'POST', mode: 'cors' })
-      .then(function (r) {
-        return r.text().then(function (t) { return { ok: r.ok, status: r.status, body: t }; });
-      })
-      .then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.body.slice(0, 80));
-        say('已触发，云端约 40–60 秒后出结果', false);
-        // 45 秒后自动比对一次，有新版本就重载
-        setTimeout(function () {
-          var u = new URL(location.href);
-          u.searchParams.set('_', Date.now());
-          fetch(u.toString(), { cache: 'no-store' })
-            .then(function (r) { return r.text(); })
-            .then(function (html) {
-              var re = /生成于 (\d{4}-\d{2}-\d{2} \d{2}:\d{2})/;
-              var m = html.match(re);
-              var meta = document.getElementById('meta');
-              var cur = (meta.textContent.match(re) || [])[1];
-              if (m && m[1] !== cur) location.replace(u.toString());
-              else say('云端还没出新版本，稍后再点「刷新到最新」', false);
-            })
-            .catch(function () { say('已触发，请稍后手动刷新', false); });
-        }, 45000);
-      })
-      .catch(function (e) {
-        say('触发失败：' + e.message, false);
-      })
-      .then(function () { btn.disabled = false; });
-  });
-})();
-</script>"""
+"""
 
 
 def build_report():
@@ -994,6 +997,7 @@ def build_report():
                    f"/actions/workflows/collect.yml") if repo_cfg else ""
     # 配了代理服务就一键触发；没配就退化成「跳到 Actions 页面手动点」
     dispatch_url = repo_cfg.get("dispatch_url") or ""
+    price_url = (CFG.get("remote") or {}).get("price_url") or ""
     today = date.today().strftime("%Y-%m-%d")
 
     ok_rows = [r for r in rows if r.get("status") == "ok" and fnum(r.get("cur")) is not None]
@@ -1090,16 +1094,22 @@ def build_report():
     #      比每小时若干次采样可靠得多——只要当天到过某个价，这里一定留痕。
     ex_rows = extreme_rows(15)
     today_ex = ex_rows[0] if (ex_rows and ex_rows[0][0] == today) else None
-    ex_low = today_ex[3] if today_ex else None
-    ex_high = today_ex[4] if today_ex else None
-    ex_low_gap = (ex_low - target["price"]) if ex_low is not None else None
-    ex_low_cls = "down" if (ex_low_gap is not None and ex_low_gap <= 0) else ""
-    if today_ex:
-        hit_txt = ("<b>已触及目标</b>" if (ex_low_gap or 1) <= 0
-                   else f"距目标 +{ex_low_gap:.2f}")
-        ex_low_sub = f"日内 {fmt(ex_low)} ~ {fmt(ex_high)} · {hit_txt}"
+
+    # 今日日内最低：直接取今天已采数据里的最小值（2026-11-02 用户要求）。
+    # 之前用的是上金所日线极值，但那个要等收盘后才更新，盘中一直显示「—」，形同虚设。
+    # 现在立刻有数：有几次采集就有区间，采得越密越准。
+    today_pts = [(fnum(r["cur"]), r["slot"]) for r in day_rows_all if fnum(r["cur"]) is not None]
+    if today_pts:
+        ex_low, low_slot = min(today_pts, key=lambda x: (x[0], x[1]))
+        ex_high = max(v for v, _ in today_pts)
+        ex_low_gap = ex_low - target["price"]
+        ex_low_cls = "down" if ex_low_gap <= 0 else ""
+        hit_txt = ("<b>已触及目标</b>" if ex_low_gap <= 0 else f"距目标 +{ex_low_gap:.2f}")
+        ex_low_sub = f"今日 <b>{low_slot}</b> 触及 · 区间 {fmt(ex_low)} ~ {fmt(ex_high)} · {hit_txt}"
     else:
-        ex_low_sub = "今日尚无极值记录（收盘后自动补齐）"
+        ex_low = ex_high = ex_low_gap = None
+        ex_low_cls = ""
+        ex_low_sub = "今日还没有采集数据"
 
     ext_rows_html = []
     for d, op, cl, lo, hi in ex_rows:
@@ -1370,16 +1380,16 @@ def build_report():
 来源 {CFG['source']['name']}</div>
   </div>
   <div class="acts">
-    <button class="btn primary" id="btn-refresh" type="button">↻ 刷新到最新</button>
-    {'<button class="btn" id="btn-collect" type="button" data-url="' + dispatch_url + '">⚡ 立即采集</button>' if dispatch_url else ('<a class="btn" href="' + actions_url + '" target="_blank" rel="noopener">⚡ 立即采集</a>' if actions_url else '')}
+    <button class="btn primary" id="btn-refresh" type="button"
+            data-dispatch="{dispatch_url}" data-price="{price_url}">↻ 刷新到最新</button>
   </div>
 </div>
 <div class="toast" id="toast"></div>
 <div class="tip" id="tip"></div>
 
 <div class="cards">
-  <div class="card"><div class="k">实时金价（元/克）</div>
-    <div class="v">{fmt(cur_price)}</div>
+  <div class="card" id="card-price"><div class="k">实时金价（元/克）</div>
+    <div class="v" id="card-price-val">{fmt(cur_price)}</div>
     <div class="d">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
   <div class="card"><div class="k">今日较首点</div>
     <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
