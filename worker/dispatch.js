@@ -1,5 +1,6 @@
 /**
  * GitHub workflow 触发代理（Cloudflare Worker 入口）
+ * 目标仓库：ai-stock-cn/gold-price（数据与站点都在这个仓库；bang325 那个仅作历史备份）
  *
  * 作用：报表是纯静态页面，不能安全持有 GitHub token（公开页面源码谁都能看，
  * GitHub 还会自动吊销扫描到的 token）。所以 token 放在这里，浏览器只能调用
@@ -17,7 +18,7 @@
  */
 
 const DEFAULTS = {
-  REPO: 'bang325/gold-price',
+  REPO: 'ai-stock-cn/gold-price',
   WORKFLOW: 'collect.yml',
   REF: 'main',
 };
