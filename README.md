@@ -74,6 +74,11 @@ GitHub 还会主动扫描并吊销。所以 token 必须放在服务端。
 实测被节流到 **3～7 小时一次**（配的是 `*/15`，实际间隔 3.1h / 3.9h / 4.4h / 7.1h 都出现过），
 根本拿不到 15 分钟粒度。Worker 的 Cron 才是可靠来源。
 
+**同一个 Worker 还兼任定时器**：`wrangler.toml` 里配了 `crons = ["*/15 * * * *"]`，
+它会每 15 分钟直接调一次 `workflow_dispatch`。这是必要的——GitHub 自己的 `schedule`
+实测被节流到 **3～7 小时一次**（配的是 `*/15`，实际间隔 3.1h / 3.9h / 4.4h / 7.1h 都出现过），
+根本拿不到 15 分钟粒度。Worker 的 Cron 才是可靠来源。
+
 `dispatch_url` 留空时按钮自动退回「跳转 Actions」的旧行为，两条路都可用。
 ⚠️ `ALLOW_ORIGIN` 只能挡浏览器跨站调用，挡不住 `curl` 伪造。想更严就加 Cloudflare 的
 Rate Limiting 规则，或改成带路径密钥的形式。
