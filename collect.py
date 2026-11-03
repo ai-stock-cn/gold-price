@@ -255,11 +255,20 @@ def ingest_remote(url=None, timeout=25):
     rows = read_rows()
     have = {(r["d"], r["slot"]) for r in rows if r.get("src", SRC_LIVE) in REAL_SRCS}
 
+    # Worker 的 cron 有时会在 08:31 这种非整刻触发，它会如实记下 08:31。
+    # 直接写进 CSV 就成了网格外的孤儿点（图表不认、还和 08:30 重复）。
+    # 统一向下对齐到最近的 15 分钟标准时点。
+    grid = CFG["slots"]
+
+    def snap(hhmm):
+        cand = [x for x in grid if x <= hhmm]
+        return cand[-1] if cand else None
+
     added = 0
     for p in pts:
         ts = (p.get("ts") or "").strip()
         d = ts[:10] or (obj.get("date") or "")
-        slot = (p.get("slot") or "").strip()
+        slot = snap((p.get("slot") or "").strip())
         cur = p.get("cur")
         if not d or not slot or cur is None or (d, slot) in have:
             continue
