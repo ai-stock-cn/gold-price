@@ -291,6 +291,114 @@ def ingest_remote(url=None, timeout=25):
     return added
 
 
+def fetch_intl_gold(timeout=15):
+    """国际金价：腾讯行情（伦敦金现 XAU）→ 按新浪 USDCNY 折算成 元/克。
+
+    腾讯 qt.gtimg.cn 的关键优势是响应头带 `access-control-allow-origin: *`，
+    浏览器可以直接跨域取——这也是前端能画实时价的前提（中国黄金、上金所都没有这个头）。
+
+    hf_XAU 字段（逗号分隔）：0 现价 1 涨跌幅% 2 买 3 卖 4 当日最高 5 当日最低 6 行情时间 7 昨收
+    单位是美元/盎司，1 金衡盎司 = 31.1035 克。
+    """
+    cfg = CFG.get("intl") or {}
+    code = cfg.get("code") or "hf_XAU"
+    oz_g = float(cfg.get("oz_grams") or 31.1035)
+
+    def http(url, referer):
+        req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": referer})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode("gbk", "replace")
+
+    # 1) 国际金价
+    raw = http((cfg.get("quote_url") or "https://qt.gtimg.cn/q=") + code,
+               "https://gu.qq.com/")
+    body = raw.split("=", 1)[1].strip().strip('";')
+    f = body.split(",")
+    if len(f) < 6:
+        raise RuntimeError(f"腾讯行情字段不足: {raw[:120]}")
+    usd = float(f[0]); chg = float(f[1]); high = float(f[4]); low = float(f[5])
+    qtime = f[6] if len(f) > 6 else ""
+
+    # 2) 汇率
+    rate = None
+    try:
+        fx = http(cfg.get("fx_url") or "https://hq.sinajs.cn/list=USDCNY",
+                  "https://finance.sina.com.cn/")
+        fxbody = fx.split('"')[1]
+        parts = fxbody.split(",")
+        rate = float(parts[8]) if len(parts) > 8 else float(parts[1])
+    except Exception:  # noqa: BLE001
+        rate = None
+
+    out = {
+        "code": code, "usd": usd, "chg_pct": chg, "high_usd": high, "low_usd": low,
+        "quote_time": qtime, "rate": rate,
+    }
+    if rate:
+        out.update({
+            "cny": usd * rate / oz_g,
+            "high_cny": high * rate / oz_g,
+            "low_cny": low * rate / oz_g,
+        })
+    return out
+
+
+def collect_intl():
+    """抓一次国际金价并落盘。失败不影响主流程（源站可能临时不可达）。"""
+    try:
+        snap = fetch_intl_gold()
+        slot = real_slot_of(datetime.now().strftime("%H:%M")) or datetime.now().strftime("%H:%M")
+        save_intl_gold(snap, slot)
+        log(f"国际金价 {snap['usd']:.2f} 美元/盎司"
+            + (f" → {snap['cny']:.2f} 元/克" if snap.get("cny") else "")
+            + f"（当日 {snap['low_usd']:.2f}~{snap['high_usd']:.2f}）")
+    except Exception as e:  # noqa: BLE001
+        log(f"国际金价抓取失败（跳过）：{type(e).__name__}: {e}")
+
+
+def save_intl_gold(snap, slot):
+    """把国际金价快照追加到 data/intl_gold.csv（同一时点覆盖）。"""
+    path = os.path.join(BASE, "data", "intl_gold.csv")
+    cols = ["ts", "d", "slot", "usd", "cny", "high_usd", "high_cny",
+            "low_usd", "low_cny", "rate", "quote_time"]
+    now = datetime.now()
+    row = {
+        "ts": now.strftime("%Y-%m-%d %H:%M:%S"),
+        "d": now.strftime("%Y-%m-%d"),
+        "slot": slot,
+        "usd": f'{snap["usd"]:.2f}',
+        "cny": "" if snap.get("cny") is None else f'{snap["cny"]:.2f}',
+        "high_usd": f'{snap["high_usd"]:.2f}',
+        "high_cny": "" if snap.get("high_cny") is None else f'{snap["high_cny"]:.2f}',
+        "low_usd": f'{snap["low_usd"]:.2f}',
+        "low_cny": "" if snap.get("low_cny") is None else f'{snap["low_cny"]:.2f}',
+        "rate": "" if snap.get("rate") is None else f'{snap["rate"]:.4f}',
+        "quote_time": snap.get("quote_time") or "",
+    }
+    rows = []
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            rows = list(csv.DictReader(fh))
+    rows = [r for r in rows if not (r.get("d") == row["d"] and r.get("slot") == row["slot"])]
+    rows.append(row)
+    rows.sort(key=lambda r: (r["d"], r["slot"]))
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=cols, lineterminator="\n")
+        w.writeheader()
+        w.writerows(rows)
+    return row
+
+
+def latest_intl_gold(today):
+    """读回今天最后一条国际金价快照。"""
+    path = os.path.join(BASE, "data", "intl_gold.csv")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        rows = [r for r in csv.DictReader(fh) if r.get("d") == today]
+    return rows[-1] if rows else None
+
+
 def smoke():
     """探测两个数据源是否可达，结果写 data/smoke.json。
 
@@ -1097,6 +1205,16 @@ def build_report():
     prev_diff = (cur_price - prev_price) if (cur_price is not None and prev_price is not None) else None
     prev_pct = (prev_diff / prev_price * 100) if (prev_diff is not None and prev_price) else None
 
+    # 国际金价（伦敦金现）：来自腾讯行情，按当天汇率折算成 元/克
+    intl = latest_intl_gold(today)
+    intl_cny = fnum(intl["cny"]) if intl and intl.get("cny") else None
+    intl_usd = fnum(intl["usd"]) if intl else None
+    intl_low_cny = fnum(intl["low_cny"]) if intl and intl.get("low_cny") else None
+    intl_low_usd = fnum(intl["low_usd"]) if intl else None
+    intl_high_cny = fnum(intl["high_cny"]) if intl and intl.get("high_cny") else None
+    intl_rate = fnum(intl["rate"]) if intl and intl.get("rate") else None
+    intl_qtime = (intl.get("quote_time") or "") if intl else ""
+
     # 含手续费价：实时金价 + 中行点差。只做展示，不参与任何统计与图表。
     fee_spread = float((CFG.get("fee") or {}).get("spread") or 0)
     fee_price = (cur_price + fee_spread) if cur_price is not None else None
@@ -1337,6 +1455,12 @@ def build_report():
   <div class="card"><div class="k">含手续费价（+{fee_spread:.0f}）</div>
     <div class="v">{fmt(fee_price)}</div>
     <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 中行约数</div></div>
+  <div class="card"><div class="k">国际金价（伦敦金）</div>
+    <div class="v">{fmt(intl_cny)}</div>
+    <div class="d">{'—' if intl_usd is None else f"{intl_usd:.2f} 美元/盎司"}{'' if intl_rate is None else f' · 汇率 {intl_rate:.4f}'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
+  <div class="card"><div class="k">国际金当日最低</div>
+    <div class="v">{fmt(intl_low_cny)}</div>
+    <div class="d">{'—' if intl_low_usd is None else f"{intl_low_usd:.2f} 美元/盎司"}{'' if intl_high_cny is None else f' · 高 {fmt(intl_high_cny)}'} · 折算后</div></div>
   <div class="card"><div class="k">今日较首点</div>
     <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
     <div class="d">{'—' if day_pct is None else f'{day_pct:+.2f}%'} · 首点 {fmt(day_first)}</div></div>
@@ -1413,6 +1537,7 @@ def main():
             # 先把云端 Worker 已经采到的点补进来，再决定要不要自己发请求
             ingest_remote()
             collect(force=args.force, auto=args.auto)
+            collect_intl()
         if not args.no_fill:
             fill_today()
     build_report()

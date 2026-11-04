@@ -44,6 +44,14 @@
     "spread": 17.0,
     "note": "中行积存金买入相对源站基准价的点差（含手续费），约 17 元/克。报表里只做展示，不参与任何统计。"
   },
+  "intl": {
+    "code": "hf_XAU",
+    "ref_code": "hf_GC",
+    "oz_grams": 31.1035,
+    "quote_url": "https://qt.gtimg.cn/q=",
+    "fx_url": "https://hq.sinajs.cn/list=USDCNY",
+    "note": "hf_XAU=伦敦金现，hf_GC=COMEX黄金期货；单位美元/盎司，按 USDCNY 折算成元/克。qt.gtimg.cn 允许跨域，前端也能直连。"
+  },
   "remote": {
     "url": "https://gold-price.bang325.workers.dev/data",
     "price_url": "https://gold-price.bang325.workers.dev/price",
