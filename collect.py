@@ -859,7 +859,7 @@ def label_indices(labels, max_labels=12):
 
 
 def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="元/克",
-              hollow=None):
+              hollow=None, dots=None):
     """points: [(label, value|None)]；hollow: 同长度的布尔表，True 表示该点是补齐值。
 
     补齐点画空心灰环且不标数值——它不是采到的价，标上数字会让人误以为是实测。
@@ -916,7 +916,17 @@ def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="�
     # 不在图上直接画数值：96 个点时相邻标注会叠在一起糊成一团（2026-10-31 实测），
     # 改成 data-tip + <title>，鼠标悬停才显示。title 是 JS 失效时的兜底。
     hollow = hollow or []
-    for i, lbl, v in pts:
+    # 点太密（分钟级）就不画圆点了：240 个实心点会把折线糊成一串珠子。
+    # 但仍保留透明热区，鼠标悬停照样能看数值。
+    # dots=False 显式关掉圆点；None 时只在极稠密（>200 点）的分钟级序列上自动关。
+    # 注意别用低阈值：今日分时只有 96 点，那些点承载「实心=真采/空心=补齐」的语义，不能省。
+    dense = (dots is False) or (dots is None and len(pts) > 200)
+    if dense:
+        for i, lbl, v in pts:
+            tip = f"{lbl} · {v:.2f}"
+            parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="4" '
+                         f'fill="transparent" data-tip="{tip}"><title>{tip}</title></circle>')
+    for i, lbl, v in ([] if dense else pts):
         tip = f"{lbl} · {v:.2f}"
         if i < len(hollow) and hollow[i]:
             parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="2.8" '
@@ -928,6 +938,19 @@ def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="�
                      f'data-tip="{tip}"><title>{tip}</title></circle>')
 
     keep = label_indices([lbl for lbl, _ in points])
+    # 按像素间距再过滤一遍：末尾那个时点（如 14:03）常和整点（14:00）叠在一起。
+    # 冲突时保留更靠后的那个——它代表当前进度，信息量更大。
+    ordered = sorted(keep)
+    MIN_GAP = 54
+    picked = []
+    for i in ordered:
+        xi = x(i)
+        if picked and xi - x(picked[-1]) < MIN_GAP:
+            if i == ordered[-1]:
+                picked[-1] = i
+            continue
+        picked.append(i)
+    keep = set(picked)
     for i, lbl, _ in pts:
         if i not in keep:
             continue
@@ -1440,7 +1463,7 @@ def build_report():
         sample = intl_minute[::step]
         if sample[-1] != intl_minute[-1]:
             sample.append(intl_minute[-1])
-        intl_chart = svg_chart(sample, height=210, color="#4fb3d9", unit="美元/盎司")
+        intl_chart = svg_chart(sample, height=210, color="#4fb3d9", unit="美元/盎司", dots=False)
         intl_span = f"{intl_minute[0][0]} ~ {intl_minute[-1][0]} · {len(sample)} 点"
     else:
         intl_chart = ('<div class="empty">还没有伦敦金分时数据，'
