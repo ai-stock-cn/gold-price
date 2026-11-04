@@ -22,6 +22,7 @@ import argparse
 import csv
 import json
 import os
+import re
 import ssl
 import sys
 import time
@@ -347,7 +348,10 @@ def collect_intl():
     """抓一次国际金价并落盘。失败不影响主流程（源站可能临时不可达）。"""
     try:
         snap = fetch_intl_gold()
-        slot = real_slot_of(datetime.now().strftime("%H:%M")) or datetime.now().strftime("%H:%M")
+        # 向下对齐到最近的 15 分钟整点（real_slot_of 收的是记录 dict，这里直接算）
+        now_hm = datetime.now().strftime("%H:%M")
+        cand = [x for x in CFG["slots"] if x <= now_hm]
+        slot = cand[-1] if cand else now_hm
         save_intl_gold(snap, slot)
         log(f"国际金价 {snap['usd']:.2f} 美元/盎司"
             + (f" → {snap['cny']:.2f} 元/克" if snap.get("cny") else "")
@@ -355,11 +359,19 @@ def collect_intl():
     except Exception as e:  # noqa: BLE001
         log(f"国际金价抓取失败（跳过）：{type(e).__name__}: {e}")
 
+    try:
+        pts = fetch_intl_minute()
+        if pts:
+            save_intl_minute(pts)
+            log(f"伦敦金分时 {len(pts)} 个点（{pts[0][0]} ~ {pts[-1][0]}）")
+    except Exception as e:  # noqa: BLE001
+        log(f"伦敦金分时抓取失败（跳过）：{type(e).__name__}: {e}")
+
 
 def save_intl_gold(snap, slot):
     """把国际金价快照追加到 data/intl_gold.csv（同一时点覆盖）。"""
     path = os.path.join(BASE, "data", "intl_gold.csv")
-    cols = ["ts", "d", "slot", "usd", "cny", "high_usd", "high_cny",
+    cols = ["ts", "d", "slot", "usd", "chg_pct", "cny", "high_usd", "high_cny",
             "low_usd", "low_cny", "rate", "quote_time"]
     now = datetime.now()
     row = {
@@ -367,6 +379,7 @@ def save_intl_gold(snap, slot):
         "d": now.strftime("%Y-%m-%d"),
         "slot": slot,
         "usd": f'{snap["usd"]:.2f}',
+        "chg_pct": f'{snap["chg_pct"]:.2f}',
         "cny": "" if snap.get("cny") is None else f'{snap["cny"]:.2f}',
         "high_usd": f'{snap["high_usd"]:.2f}',
         "high_cny": "" if snap.get("high_cny") is None else f'{snap["high_cny"]:.2f}',
@@ -397,6 +410,64 @@ def latest_intl_gold(today):
     with open(path, encoding="utf-8") as fh:
         rows = [r for r in csv.DictReader(fh) if r.get("d") == today]
     return rows[-1] if rows else None
+
+
+def fetch_intl_minute(symbol=None, timeout=20):
+    """伦敦金当日分钟序列（新浪外盘期货分时，JSONP 接口）。
+
+    返回 [(\'HH:MM\', price), ...]，覆盖当日从 07:00 起的每一分钟。
+    腾讯的 /appstock/app/minute 只支持 A 股代码（hf_XAU 会报 code param error），
+    所以分钟级序列要用新浪这个接口。
+
+    返回体形如：var t=({"minLine_1d":[["2026-11-04","3930.090","LIFFE","","07:00","3930.600",...],
+                                    ["07:01","3932.440","0","0","3930.771","..."], ...]})
+    首行是表头（日期/昨收/交易所/…/起始时间/起始价），之后每行 [时间, 价, …, 均价, 时间戳]。
+    """
+    cfg = CFG.get("intl") or {}
+    sym = symbol or cfg.get("minute_symbol") or "XAU"
+    url = ("https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20t=/"
+           f"GlobalFuturesService.getGlobalFuturesMinLine?symbol={sym}")
+    req = urllib.request.Request(url, headers={"User-Agent": UA,
+                                              "Referer": "https://finance.sina.com.cn/"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("gbk", "replace")
+    m = re.search(r"var t=\((.*)\)\s*;?\s*$", raw.strip(), re.S)
+    if not m:
+        raise RuntimeError(f"无法解析分时返回: {raw[:120]}")
+    obj = json.loads(m.group(1))
+    arr = obj.get("minLine_1d") or []
+    pts = []
+    for row in arr:
+        if len(row) >= 6 and re.match(r"^\d{2}:\d{2}$", str(row[0])):
+            pts.append((row[0], float(row[1])))
+        elif len(row) >= 6 and re.match(r"^\d{4}-\d{2}-\d{2}$", str(row[0])):
+            pts.append((row[4], float(row[5])))
+    return pts
+
+
+def save_intl_minute(pts, day=None):
+    """把伦敦金分钟序列存成 JSON，供报表画图。"""
+    day = day or datetime.now().strftime("%Y-%m-%d")
+    path = os.path.join(BASE, "data", "intl_minute.json")
+    obj = {"date": day, "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+           "symbol": (CFG.get("intl") or {}).get("minute_symbol") or "XAU",
+           "points": [[t, v] for t, v in pts]}
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(obj, fh, ensure_ascii=False)
+    return obj
+
+
+def load_intl_minute(today):
+    path = os.path.join(BASE, "data", "intl_minute.json")
+    if not os.path.exists(path):
+        return []
+    try:
+        obj = json.load(open(path, encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return []
+    if obj.get("date") != today:
+        return []
+    return [(t, float(v)) for t, v in obj.get("points") or []]
 
 
 def smoke():
@@ -1214,6 +1285,9 @@ def build_report():
     intl_high_cny = fnum(intl["high_cny"]) if intl and intl.get("high_cny") else None
     intl_rate = fnum(intl["rate"]) if intl and intl.get("rate") else None
     intl_qtime = (intl.get("quote_time") or "") if intl else ""
+    intl_chg = fnum(intl["chg_pct"]) if intl and intl.get("chg_pct") not in (None, "") else None
+    intl_high_usd = fnum(intl["high_usd"]) if intl else None
+    intl_minute = load_intl_minute(today)
 
     # 含手续费价：实时金价 + 中行点差。只做展示，不参与任何统计与图表。
     fee_spread = float((CFG.get("fee") or {}).get("spread") or 0)
@@ -1360,6 +1434,19 @@ def build_report():
                if today_ex else
                "今日暂无极值数据，收盘后自动补齐。"))
 
+    # ---- 伦敦金分时图：每分钟一个点，太密就抽稀到 ~240 个
+    if intl_minute:
+        step = max(1, len(intl_minute) // 240)
+        sample = intl_minute[::step]
+        if sample[-1] != intl_minute[-1]:
+            sample.append(intl_minute[-1])
+        intl_chart = svg_chart(sample, height=210, color="#4fb3d9", unit="美元/盎司")
+        intl_span = f"{intl_minute[0][0]} ~ {intl_minute[-1][0]} · {len(sample)} 点"
+    else:
+        intl_chart = ('<div class="empty">还没有伦敦金分时数据，'
+                      '跑一次 <code>python3 collect.py --auto</code> 抓取。</div>')
+        intl_span = "暂无数据"
+
     warn_html = "".join(f"<li>{w}</li>" for w in warn)
 
     html = f"""<!DOCTYPE html>
@@ -1456,11 +1543,11 @@ def build_report():
     <div class="v">{fmt(fee_price)}</div>
     <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 中行约数</div></div>
   <div class="card"><div class="k">国际金价（伦敦金）</div>
-    <div class="v">{fmt(intl_cny)}</div>
-    <div class="d">{'—' if intl_usd is None else f"{intl_usd:.2f} 美元/盎司"}{'' if intl_rate is None else f' · 汇率 {intl_rate:.4f}'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
+    <div class="v">{fmt(intl_usd)}</div>
+    <div class="d">美元/盎司{'' if intl_chg is None else f' · {arrow(intl_chg)} {abs(intl_chg):.2f}%'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
   <div class="card"><div class="k">国际金当日最低</div>
-    <div class="v">{fmt(intl_low_cny)}</div>
-    <div class="d">{'—' if intl_low_usd is None else f"{intl_low_usd:.2f} 美元/盎司"}{'' if intl_high_cny is None else f' · 高 {fmt(intl_high_cny)}'} · 折算后</div></div>
+    <div class="v">{fmt(intl_low_usd)}</div>
+    <div class="d">美元/盎司{'' if intl_high_usd is None else f' · 高 {fmt(intl_high_usd)}'}</div></div>
   <div class="card"><div class="k">今日较首点</div>
     <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
     <div class="d">{'—' if day_pct is None else f'{day_pct:+.2f}%'} · 首点 {fmt(day_first)}</div></div>
@@ -1489,6 +1576,12 @@ def build_report():
 <details><summary>展开逐日数值表（最低 / 最高 / 收盘）</summary>
 <table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
+
+<section><h2>伦敦金分时 · {intl_span}（美元/盎司）</h2>
+<div class="hint">数据来自新浪外盘期货分时接口，<b>每分钟一个点</b>，非采样补齐。
+伦敦金 24 小时连续交易，所以凌晨也有变化——这正是国内门店牌价给不了的部分。<br>
+与上方「国际金价」卡片（腾讯行情）互为交叉校验，两个源的现价应当一致。</div>
+{intl_chart}</section>
 
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
