@@ -360,6 +360,14 @@ def collect_intl():
         log(f"国际金价抓取失败（跳过）：{type(e).__name__}: {e}")
 
     try:
+        daily = fetch_intl_daily(60)
+        if daily:
+            n = save_intl_daily(daily)
+            log(f"伦敦金日线：{daily[0]['date']} ~ {daily[-1]['date']}，库内共 {n} 条")
+    except Exception as e:  # noqa: BLE001
+        log(f"伦敦金日线抓取失败（跳过）：{type(e).__name__}: {e}")
+
+    try:
         pts = fetch_intl_minute()
         if pts:
             save_intl_minute(pts)
@@ -487,6 +495,75 @@ def load_intl_minute(hours=24):
                 except ValueError:
                     continue
     return pts
+
+
+def fetch_intl_daily(limit=30, timeout=25):
+    """伦敦金日线（新浪外盘期货日K），返回最近 limit 个交易日，按日期升序。
+
+    和分时接口不同，这个接口有完整历史——从 2006-11-06 至今 5000 多条。
+    字段：date / open / high / low / close，单位美元/盎司。
+    """
+    cfg = CFG.get("intl") or {}
+    sym = cfg.get("minute_symbol") or "XAU"
+    url = ("https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20t=/"
+           f"GlobalFuturesService.getGlobalFuturesDailyKLine?symbol={sym}")
+    req = urllib.request.Request(url, headers={"User-Agent": UA,
+                                              "Referer": "https://finance.sina.com.cn/"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("gbk", "replace")
+    m = re.search(r"var t=\((.*)\)\s*;?\s*$", raw.strip(), re.S)
+    if not m:
+        raise RuntimeError(f"无法解析日线返回: {raw[:120]}")
+    arr = json.loads(m.group(1))
+    rows = []
+    for r in arr:
+        try:
+            rows.append({
+                "date": r["date"],
+                "open": float(r["open"]), "high": float(r["high"]),
+                "low": float(r["low"]), "close": float(r["close"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return rows[-limit:]
+
+
+def save_intl_daily(rows, keep_days=120):
+    """把日线 upsert 进 data/intl_daily.csv（当天那条会被最新价覆盖）。"""
+    path = os.path.join(BASE, "data", "intl_daily.csv")
+    seen = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                seen[r["date"]] = r
+    for r in rows:
+        seen[r["date"]] = {
+            "date": r["date"], "open": f'{r["open"]:.2f}', "high": f'{r["high"]:.2f}',
+            "low": f'{r["low"]:.2f}', "close": f'{r["close"]:.2f}',
+        }
+    out = sorted(seen.values(), key=lambda x: x["date"])[-keep_days:]
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["date", "open", "high", "low", "close"],
+                           lineterminator="\n")
+        w.writeheader()
+        w.writerows(out)
+    return len(out)
+
+
+def load_intl_daily(limit=30):
+    path = os.path.join(BASE, "data", "intl_daily.csv")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    out = []
+    for r in rows[-limit:]:
+        try:
+            out.append({"date": r["date"], "open": float(r["open"]), "high": float(r["high"]),
+                        "low": float(r["low"]), "close": float(r["close"])})
+        except (KeyError, ValueError):
+            continue
+    return out
 
 
 def smoke():
@@ -1476,6 +1553,39 @@ def build_report():
                if today_ex else
                "今日暂无极值数据，收盘后自动补齐。"))
 
+    # ---- 伦敦金日线看板：近 30 个交易日
+    intl_daily = load_intl_daily(30)
+    if len(intl_daily) >= 2:
+        d_first, d_last = intl_daily[0], intl_daily[-1]
+        d_lo = min(intl_daily, key=lambda r: r["low"])
+        d_hi = max(intl_daily, key=lambda r: r["high"])
+        d_prev = intl_daily[-2]["close"] if len(intl_daily) >= 2 else None
+        d_pct = (d_last["close"] / d_first["close"] - 1) * 100
+        d_day_pct = ((d_last["close"] / d_prev - 1) * 100) if d_prev else None
+        intl_daily_chart = svg_chart(
+            [(r["date"][5:], r["close"]) for r in intl_daily],
+            height=200, color="#4fb3d9", unit="美元/盎司")
+        intl_daily_block = f"""<div class="cards">
+  <div class="card"><div class="k">最新收盘</div>
+    <div class="v">{fmt(d_last['close'])}</div>
+    <div class="d">{d_last['date']}{'' if d_day_pct is None else f' · 较前一日 {arrow(d_day_pct)} {abs(d_day_pct):.2f}%'}</div></div>
+  <div class="card"><div class="k">近 {len(intl_daily)} 日涨跌</div>
+    <div class="v {cls(d_pct)}">{arrow(d_pct)} {abs(d_pct):.2f}%</div>
+    <div class="d">{d_first['date']} 的 {fmt(d_first['close'])} → 今</div></div>
+  <div class="card"><div class="k">区间最高</div>
+    <div class="v">{fmt(d_hi['high'])}</div>
+    <div class="d">{d_hi['date']}</div></div>
+  <div class="card"><div class="k">区间最低</div>
+    <div class="v">{fmt(d_lo['low'])}</div>
+    <div class="d">{d_lo['date']}</div></div>
+</div>
+{intl_daily_chart}"""
+        intl_daily_n = len(intl_daily)
+    else:
+        intl_daily_block = ('<div class="empty">还没有伦敦金日线数据，'
+                            '跑一次 <code>python3 collect.py --auto</code> 抓取。</div>')
+        intl_daily_n = 0
+
     # ---- 伦敦金分时图：每分钟一个点，太密就抽稀到 ~240 个
     if intl_minute:
         step = max(1, len(intl_minute) // 240)
@@ -1606,7 +1716,7 @@ def build_report():
 金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该时点没采到、按最近一条真实样本补的值（不标数值）。</div>
 {svg_chart(today_series, hollow=today_hollow)}</section>
 
-<section><h2>近 {len(daily_series)} 个交易日 · 日线（当天最后一个采集点即收盘价）</h2>
+<section><h2>国内金价日线 · 近 {len(daily_series)} 个交易日（元/克）</h2>
 <div class="hint">每天<b>最后一个采集点</b>作为当日收盘价，漏掉的中间时点会被下一次采集自动补齐；采到 <b>{tail_slot}</b> 尾盘即视为定盘，此前用最新一条并标 <b>~</b>{' · 带 * 的日期为日线回溯（收盘价），非分时实采' if n_daily else ''}</div>
 {svg_chart(daily_series, height=200)}</section>
 
@@ -1626,6 +1736,11 @@ def build_report():
 每天以北京时间 07:00 为起点，接口不返回更早的分钟数据（带日期参数也无效）。
 本图自 2026-11-05 起持续累积，<b>跨天后即拼接为完整的 24 小时</b>。</div>
 {intl_chart}</section>
+
+<section><h2>伦敦金日线 · 近 {intl_daily_n} 个交易日（美元/盎司）</h2>
+<div class="hint">每个交易日一个收盘价，取自新浪外盘期货日 K（完整历史可回溯到 2006 年）。
+今日那条会随盘中价格变动，收盘后定盘。鼠标悬停任一点可看数值。</div>
+{intl_daily_block}</section>
 
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
