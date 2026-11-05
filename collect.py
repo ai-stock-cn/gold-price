@@ -28,7 +28,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 CONFIG_PATH = os.path.join(BASE, "config.json")
@@ -446,28 +446,47 @@ def fetch_intl_minute(symbol=None, timeout=20):
 
 
 def save_intl_minute(pts, day=None):
-    """把伦敦金分钟序列存成 JSON，供报表画图。"""
+    """把伦敦金分钟序列**累积**进 data/intl_minute.csv（同一时刻去重，保留 5 天）。
+
+    为什么要累积：新浪这个接口只返回「当前交易日」，而它的交易日从北京时间 07:00 起算。
+    所以每次抓到的都只是 07:00 → 此刻那一段，00:00–07:00 永远拿不到（接口不提供历史）。
+    持续累积之后，图上就能拼出跨天的连续 24 小时。
+    """
     day = day or datetime.now().strftime("%Y-%m-%d")
-    path = os.path.join(BASE, "data", "intl_minute.json")
-    obj = {"date": day, "updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-           "symbol": (CFG.get("intl") or {}).get("minute_symbol") or "XAU",
-           "points": [[t, v] for t, v in pts]}
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump(obj, fh, ensure_ascii=False)
-    return obj
+    path = os.path.join(BASE, "data", "intl_minute.csv")
+    seen = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                seen[r["ts"]] = r["price"]
+    for t, v in pts:
+        seen[f"{day} {t}"] = f"{float(v):.2f}"
+
+    keep_from = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+    rows = [(ts, price) for ts, price in seen.items() if ts[:10] >= keep_from]
+    rows.sort()
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        w = csv.writer(fh, lineterminator="\n")
+        w.writerow(["ts", "price"])
+        w.writerows(rows)
+    return len(rows)
 
 
-def load_intl_minute(today):
-    path = os.path.join(BASE, "data", "intl_minute.json")
+def load_intl_minute(hours=24):
+    """读最近 N 小时的伦敦金分钟点，返回 [(HH:MM, price), ...]。"""
+    path = os.path.join(BASE, "data", "intl_minute.csv")
     if not os.path.exists(path):
         return []
-    try:
-        obj = json.load(open(path, encoding="utf-8"))
-    except Exception:  # noqa: BLE001
-        return []
-    if obj.get("date") != today:
-        return []
-    return [(t, float(v)) for t, v in obj.get("points") or []]
+    cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
+    pts = []
+    with open(path, encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            if r["ts"] >= cutoff:
+                try:
+                    pts.append((r["ts"][11:16], float(r["price"])))
+                except ValueError:
+                    continue
+    return pts
 
 
 def smoke():
@@ -1310,7 +1329,7 @@ def build_report():
     intl_qtime = (intl.get("quote_time") or "") if intl else ""
     intl_chg = fnum(intl["chg_pct"]) if intl and intl.get("chg_pct") not in (None, "") else None
     intl_high_usd = fnum(intl["high_usd"]) if intl else None
-    intl_minute = load_intl_minute(today)
+    intl_minute = load_intl_minute(24)
 
     # 含手续费价：实时金价 + 中行点差。只做展示，不参与任何统计与图表。
     fee_spread = float((CFG.get("fee") or {}).get("spread") or 0)
@@ -1602,8 +1621,10 @@ def build_report():
 
 <section><h2>伦敦金分时 · {intl_span}（美元/盎司）</h2>
 <div class="hint">数据来自新浪外盘期货分时接口，<b>每分钟一个点</b>，非采样补齐。
-伦敦金 24 小时连续交易，所以凌晨也有变化——这正是国内门店牌价给不了的部分。<br>
-与上方「国际金价」卡片（腾讯行情）互为交叉校验，两个源的现价应当一致。</div>
+与上方「国际金价」卡片（腾讯行情）互为交叉校验，两个源的现价应当一致。<br>
+<b>为什么从 07:00 开始</b>：伦敦金本身 24 小时交易，但数据源按<b>交易日</b>切分，
+每天以北京时间 07:00 为起点，接口不返回更早的分钟数据（带日期参数也无效）。
+本图自 2026-11-05 起持续累积，<b>跨天后即拼接为完整的 24 小时</b>。</div>
 {intl_chart}</section>
 
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
