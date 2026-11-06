@@ -423,9 +423,9 @@ def latest_intl_gold(today):
 def fetch_intl_minute(symbol=None, timeout=20):
     """伦敦金当日分钟序列（新浪外盘期货分时，JSONP 接口）。
 
-    返回 [(\'HH:MM\', price), ...]，覆盖当日从 07:00 起的每一分钟。
-    腾讯的 /appstock/app/minute 只支持 A 股代码（hf_XAU 会报 code param error），
-    所以分钟级序列要用新浪这个接口。
+    返回 [(日期, 'HH:MM', 价格), ...]。**日期取自接口表头那一行，不能用 datetime.now()**：
+    凌晨（07:00 前）运行时，接口返回的仍是上一个交易日的完整序列，
+    用当天日期打标会把整份昨日数据冒充成今日（2026-11-06 实际踩过这个坑）。
 
     返回体形如：var t=({"minLine_1d":[["2026-11-04","3930.090","LIFFE","","07:00","3930.600",...],
                                     ["07:01","3932.440","0","0","3930.771","..."], ...]})
@@ -445,32 +445,43 @@ def fetch_intl_minute(symbol=None, timeout=20):
     obj = json.loads(m.group(1))
     arr = obj.get("minLine_1d") or []
     pts = []
+    day = None
     for row in arr:
-        if len(row) >= 6 and re.match(r"^\d{2}:\d{2}$", str(row[0])):
-            pts.append((row[0], float(row[1])))
-        elif len(row) >= 6 and re.match(r"^\d{4}-\d{2}-\d{2}$", str(row[0])):
-            pts.append((row[4], float(row[5])))
+        if len(row) >= 6 and re.match(r"^\d{4}-\d{2}-\d{2}$", str(row[0])) and day is None:
+            day = row[0]
+            pts.append((day, row[4], float(row[5])))
+        elif len(row) >= 6 and re.match(r"^\d{2}:\d{2}$", str(row[0])) and day:
+            pts.append((day, row[0], float(row[1])))
     return pts
 
 
 def save_intl_minute(pts, day=None):
-    """把伦敦金分钟序列**累积**进 data/intl_minute.csv（同一时刻去重，保留 5 天）。
+    """把伦敦金分钟点累积进 data/intl_minute.csv（同一时刻去重，保留 5 天）。
 
-    为什么要累积：新浪这个接口只返回「当前交易日」，而它的交易日从北京时间 07:00 起算。
-    所以每次抓到的都只是 07:00 → 此刻那一段，00:00–07:00 永远拿不到（接口不提供历史）。
-    持续累积之后，图上就能拼出跨天的连续 24 小时。
+    pts 的每一项是 (日期, 'HH:MM', 价格)，日期直接来自接口表头，不靠本地时钟推断。
+    另外丢弃晚于当前时间的点——接口偶尔会给出尚未发生的时点。
+    为什么要累积：接口只返回「当前交易日」，而它的交易日从北京时间 07:00 起算，
+    00:00–07:00 拿不到（接口不提供历史），只能靠自己一直存。
     """
-    day = day or datetime.now().strftime("%Y-%m-%d")
     path = os.path.join(BASE, "data", "intl_minute.csv")
+    now = datetime.now()
     seen = {}
     if os.path.exists(path):
         with open(path, encoding="utf-8") as fh:
             for r in csv.DictReader(fh):
                 seen[r["ts"]] = r["price"]
-    for t, v in pts:
-        seen[f"{day} {t}"] = f"{float(v):.2f}"
 
-    keep_from = (datetime.now() - timedelta(days=5)).strftime("%Y-%m-%d")
+    added = 0
+    for d, t, v in pts:
+        ts = f"{d} {t}"
+        if ts > now.strftime("%Y-%m-%d %H:%M"):   # 未来时点，丢弃
+            continue
+        key = ts
+        if key not in seen:
+            added += 1
+        seen[key] = f"{float(v):.2f}"
+
+    keep_from = (now - timedelta(days=5)).strftime("%Y-%m-%d")
     rows = [(ts, price) for ts, price in seen.items() if ts[:10] >= keep_from]
     rows.sort()
     with open(path, "w", encoding="utf-8", newline="") as fh:
@@ -487,13 +498,21 @@ def load_intl_minute(hours=24):
         return []
     cutoff = (datetime.now() - timedelta(hours=hours)).strftime("%Y-%m-%d %H:%M")
     pts = []
+    prev_day = None
     with open(path, encoding="utf-8") as fh:
         for r in csv.DictReader(fh):
-            if r["ts"] >= cutoff:
-                try:
-                    pts.append((r["ts"][11:16], float(r["price"])))
-                except ValueError:
-                    continue
+            ts = r["ts"]
+            if ts < cutoff:
+                continue
+            try:
+                price = float(r["price"])
+            except ValueError:
+                continue
+            day, hm = ts[:10], ts[11:16]
+            # 每天的第一个点带上日期，避免跨天后 07:00 和 23:00 分不清前后
+            label = f"{day[5:]} {hm}" if day != prev_day else hm
+            prev_day = day
+            pts.append((label, price))
     return pts
 
 
@@ -955,7 +974,7 @@ def label_indices(labels, max_labels=12):
 
 
 def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="元/克",
-              hollow=None, dots=None):
+              hollow=None, dots=None, mark_last=False):
     """points: [(label, value|None)]；hollow: 同长度的布尔表，True 表示该点是补齐值。
 
     补齐点画空心灰环且不标数值——它不是采到的价，标上数字会让人误以为是实测。
@@ -1033,17 +1052,32 @@ def svg_chart(points, ref=None, width=760, height=220, color="#e0b354", unit="�
         parts.append(f'<circle cx="{x(i):.1f}" cy="{y(v):.1f}" r="3.4" fill="{color}" '
                      f'data-tip="{tip}"><title>{tip}</title></circle>')
 
+    if mark_last and pts:
+        li, llbl, lv = pts[-1]
+        lx, ly = x(li), y(lv)
+        parts.append(f'<circle cx="{lx:.1f}" cy="{ly:.1f}" r="4.5" fill="{color}" '
+                     f'stroke="#0d1117" stroke-width="1.5"/>')
+        ty = ly - 10 if ly > pad_t + 14 else ly + 16
+        parts.append(f'<text x="{min(lx, width - pad_r - 4):.1f}" y="{ty:.1f}" class="ax" '
+                     f'text-anchor="end" fill="{color}">{lv:.2f}</text>')
+
     keep = label_indices([lbl for lbl, _ in points])
-    # 按像素间距再过滤一遍：末尾那个时点（如 14:03）常和整点（14:00）叠在一起。
-    # 冲突时保留更靠后的那个——它代表当前进度，信息量更大。
+    # 带空格的是「跨天锚点」（如 "11-06 07:00"），再加上第一个点：这些必须显示，
+    # 否则跨天后 23:00 和 08:00 挨在一起，看不出中间断了一夜。
+    forced = {0} | {i for i, (lbl, _) in enumerate(points) if " " in lbl}
+    keep |= forced
+    # 再按像素间距过滤普通标签：末尾那个时点（如 14:03）常和整点（14:00）叠在一起，
+    # 冲突时保留更靠后的那个——它代表当前进度，信息量更大。强制显示的不受此限。
     ordered = sorted(keep)
     MIN_GAP = 54
     picked = []
     for i in ordered:
         xi = x(i)
         if picked and xi - x(picked[-1]) < MIN_GAP:
-            if i == ordered[-1]:
+            if i == ordered[-1] and i not in forced:
                 picked[-1] = i
+            elif i in forced:
+                picked.append(i)
             continue
         picked.append(i)
     keep = set(picked)
@@ -1588,12 +1622,16 @@ def build_report():
 
     # ---- 伦敦金分时图：每分钟一个点，太密就抽稀到 ~240 个
     if intl_minute:
-        step = max(1, len(intl_minute) // 240)
-        sample = intl_minute[::step]
-        if sample[-1] != intl_minute[-1]:
+        # 按 5 分钟取样：每分钟全画太密（1000+ 点），而按索引等间隔取又会正好跳过 :00 整点，
+        # 导致横轴没有整点刻度、标签变成 11:53 / 13:17 这种。按分钟数筛就稳。
+        sample = [(lbl, v) for lbl, v in intl_minute
+                  if " " in lbl or int(lbl.split(":")[1]) % 5 == 0]
+        if not sample or sample[-1] != intl_minute[-1]:
             sample.append(intl_minute[-1])
-        intl_chart = svg_chart(sample, height=210, color="#4fb3d9", unit="美元/盎司", dots=False)
-        intl_span = f"{intl_minute[0][0]} ~ {intl_minute[-1][0]} · {len(sample)} 点"
+        intl_chart = svg_chart(sample, height=210, color="#4fb3d9", unit="美元/盎司",
+                               dots=False, mark_last=True)
+        intl_now_lbl, intl_now_val = intl_minute[-1]
+        intl_span = f"现价 {intl_now_val:.2f} · {intl_now_lbl} · {len(intl_minute)} 点"
     else:
         intl_chart = ('<div class="empty">还没有伦敦金分时数据，'
                       '跑一次 <code>python3 collect.py --auto</code> 抓取。</div>')
@@ -1730,11 +1768,11 @@ def build_report():
 <tbody>{ext_body}</tbody></table></details></section>
 
 <section><h2>伦敦金分时 · {intl_span}（美元/盎司）</h2>
-<div class="hint">数据来自新浪外盘期货分时接口，<b>每分钟一个点</b>，非采样补齐。
-与上方「国际金价」卡片（腾讯行情）互为交叉校验，两个源的现价应当一致。<br>
-<b>为什么从 07:00 开始</b>：伦敦金本身 24 小时交易，但数据源按<b>交易日</b>切分，
-每天以北京时间 07:00 为起点，接口不返回更早的分钟数据（带日期参数也无效）。
-本图自 2026-11-05 起持续累积，<b>跨天后即拼接为完整的 24 小时</b>。</div>
+<div class="hint">数据来自新浪外盘期货分时接口，底层<b>每分钟一个点</b>（图上按 5 分钟取点显示，避免线条过密）。
+图末的<b>蓝点＋数字</b>是当前价；与上方「国际金价」卡片（腾讯行情）互为交叉校验，两者应当一致。<br>
+<b>中间那段空白不是丢数据</b>：数据源按「交易日」切分，每天以北京时间 07:00 重新开始，
+23:59 → 次日 07:00 的休市时段本身没有分钟数据，所以曲线在这里断开。
+横轴上带日期的那两个刻度（如 <b>11-06 07:00</b>）就是跨天的分界点。</div>
 {intl_chart}</section>
 
 <section><h2>伦敦金日线 · 近 {intl_daily_n} 个交易日（美元/盎司）</h2>
