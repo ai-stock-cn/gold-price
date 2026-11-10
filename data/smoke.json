@@ -1,16 +1,16 @@
 {
- "at": "2026-11-10 10:30:26",
+ "at": "2026-11-10 10:45:27",
  "tz": "Asia/Shanghai",
  "source": {
   "ok": true,
   "code": 200,
-  "sec": 2.06,
+  "sec": 2.99,
   "head": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\r\n        \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\r\n<html>\r\n<head>\r\n    <meta ht"
  },
  "sge": {
   "ok": true,
   "code": 200,
-  "sec": 1.76,
+  "sec": 1.87,
   "head": "{\"time\":[[\"2016-12-19\",262.45,262.76,262.02,263.5],[\"2016-12-20\",262.88,262.06,261.42,263.7],[\"2016-12-21\",262.4,260.97,258.6,262.65],[\"2016-12-22\",261.18,260.0"
  }
 }
