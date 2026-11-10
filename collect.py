@@ -231,6 +231,30 @@ def sync_extremes(quiet=False):
     return trimmed
 
 
+def maybe_sync_extremes(min_minutes=20):
+    """例行采集时顺带同步上金所日线，别让「日内极值」区块长期不更新。
+
+    以前只有手动跑 --sync-extremes 才会同步，结果 2026-11-06 之后停了 4 天
+    （11-07/08 周末，11-09 周一的日线一直没进库），用户发现图表停在 11-06。
+    这里用「上次同步时间」做节流，避免每 15 分钟打一次源站。
+    """
+    try:
+        last = ""
+        if os.path.exists(EXTREMES_PATH):
+            with open(EXTREMES_PATH, encoding="utf-8") as f:
+                last = (json.load(f).get("updated") or "").strip()
+        if last:
+            try:
+                dt = datetime.strptime(last, "%Y-%m-%d %H:%M:%S")
+                if (datetime.now() - dt).total_seconds() < min_minutes * 60:
+                    return
+            except ValueError:
+                pass
+        sync_extremes(quiet=True)
+    except Exception as e:  # noqa: BLE001
+        log(f"日内极值自动同步跳过：{type(e).__name__}: {e}")
+
+
 def ingest_remote(url=None, timeout=25):
     """把云端 Worker 采集到的点补进 CSV。
 
@@ -1828,6 +1852,7 @@ def main():
             ingest_remote()
             collect(force=args.force, auto=args.auto)
             collect_intl()
+            maybe_sync_extremes()
         if not args.no_fill:
             fill_today()
     build_report()
