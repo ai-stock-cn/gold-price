@@ -1446,9 +1446,13 @@ def build_report():
 
     # ---- 指标
     cur_price = fnum(latest["cur"]) if latest else None
-    day_first = fnum(today_rows[0]["cur"]) if today_rows else None
-    day_diff = (cur_price - day_first) if (cur_price is not None and day_first is not None) else None
-    day_pct = (day_diff / day_first * 100) if (day_diff is not None and day_first) else None
+    # 今日振幅 = 今日最高 - 今日最低（不是"较首点"）。
+    # 原来的「今日较首点」和「较上一交易日」恒等：这个源隔夜不变价，
+    # 今日第一个点就等于昨日最后一个点，两张卡永远算出同一个数（2026-11-12 实测连续 5 天相同）。
+    _today_vals = [fnum(r["cur"]) for r in today_rows if fnum(r["cur"]) is not None]
+    day_high = max(_today_vals) if _today_vals else None
+    day_low = min(_today_vals) if _today_vals else None
+    day_amp = (day_high - day_low) if (_today_vals and day_high is not None and day_low is not None) else None
     prev_price = fnum(prev_last["cur"]) if prev_last else None
     prev_diff = (cur_price - prev_price) if (cur_price is not None and prev_price is not None) else None
     prev_pct = (prev_diff / prev_price * 100) if (prev_diff is not None and prev_price) else None
@@ -1762,9 +1766,9 @@ def build_report():
   <div class="card"><div class="k">国际金当日最低</div>
     <div class="v">{fmt(intl_low_usd)}</div>
     <div class="d">美元/盎司{'' if intl_high_usd is None else f' · 高 {fmt(intl_high_usd)}'}</div></div>
-  <div class="card"><div class="k">今日较首点</div>
-    <div class="v {cls(day_diff)}">{arrow(day_diff)} {fmt(abs(day_diff) if day_diff is not None else None)}</div>
-    <div class="d">{'—' if day_pct is None else f'{day_pct:+.2f}%'} · 首点 {fmt(day_first)}</div></div>
+  <div class="card"><div class="k">今日振幅</div>
+    <div class="v">{fmt(day_amp)}</div>
+    <div class="d">{'—' if day_amp is None else f'{fmt(day_low)} ~ {fmt(day_high)}'}{'' if (day_amp is None or not prev_price) else f' · {day_amp / prev_price * 100:.2f}%'}</div></div>
   <div class="card"><div class="k">较上一交易日</div>
     <div class="v {cls(prev_diff)}">{arrow(prev_diff)} {fmt(abs(prev_diff) if prev_diff is not None else None)}</div>
     <div class="d">{'—' if prev_pct is None else f'{prev_pct:+.2f}%'} · 上日{'收盘' if prev_is_tail else '末点'} {fmt(prev_price)}</div></div>
