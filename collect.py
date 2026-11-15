@@ -558,6 +558,75 @@ def load_intl_minute(hours=24):
     return pts, newest
 
 
+def fetch_intl_daily(limit=30, timeout=25):
+    """伦敦金日线（新浪外盘期货日K），返回最近 limit 个交易日，按日期升序。
+
+    和分时接口不同，这个接口有完整历史——从 2006-11-06 至今 5000 多条。
+    字段：date / open / high / low / close，单位美元/盎司。
+    """
+    cfg = CFG.get("intl") or {}
+    sym = cfg.get("minute_symbol") or "XAU"
+    url = ("https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20t=/"
+           f"GlobalFuturesService.getGlobalFuturesDailyKLine?symbol={sym}")
+    req = urllib.request.Request(url, headers={"User-Agent": UA,
+                                              "Referer": "https://finance.sina.com.cn/"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        raw = r.read().decode("gbk", "replace")
+    m = re.search(r"var t=\((.*)\)\s*;?\s*$", raw.strip(), re.S)
+    if not m:
+        raise RuntimeError(f"无法解析日线返回: {raw[:120]}")
+    arr = json.loads(m.group(1))
+    rows = []
+    for r in arr:
+        try:
+            rows.append({
+                "date": r["date"],
+                "open": float(r["open"]), "high": float(r["high"]),
+                "low": float(r["low"]), "close": float(r["close"]),
+            })
+        except (KeyError, TypeError, ValueError):
+            continue
+    return rows[-limit:]
+
+
+def save_intl_daily(rows, keep_days=120):
+    """把日线 upsert 进 data/intl_daily.csv（当天那条会被最新价覆盖）。"""
+    path = os.path.join(BASE, "data", "intl_daily.csv")
+    seen = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                seen[r["date"]] = r
+    for r in rows:
+        seen[r["date"]] = {
+            "date": r["date"], "open": f'{r["open"]:.2f}', "high": f'{r["high"]:.2f}',
+            "low": f'{r["low"]:.2f}', "close": f'{r["close"]:.2f}',
+        }
+    out = sorted(seen.values(), key=lambda x: x["date"])[-keep_days:]
+    with open(path, "w", encoding="utf-8", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=["date", "open", "high", "low", "close"],
+                           lineterminator="\n")
+        w.writeheader()
+        w.writerows(out)
+    return len(out)
+
+
+def load_intl_daily(limit=30):
+    path = os.path.join(BASE, "data", "intl_daily.csv")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    out = []
+    for r in rows[-limit:]:
+        try:
+            out.append({"date": r["date"], "open": float(r["open"]), "high": float(r["high"]),
+                        "low": float(r["low"]), "close": float(r["close"])})
+        except (KeyError, ValueError):
+            continue
+    return out
+
+
 def smoke():
     """探测两个数据源是否可达，结果写 data/smoke.json。
 
@@ -1618,8 +1687,7 @@ def build_report():
             except ValueError:
                 intl_stale = False
         if intl_stale:
-            intl_span = (f"最近交易日收盘 {intl_now_val:.2f} · {intl_last_ts[5:16]}"
-                         f" · {len(intl_minute)} 点·休市中")
+            intl_span = f"最近交易日收盘 {intl_now_val:.2f} · {intl_last_ts[5:16]} · 休市中"
         else:
             intl_span = f"现价 {intl_now_val:.2f} · {intl_now_lbl} · {len(intl_minute)} 点"
     else:
@@ -1760,6 +1828,7 @@ def build_report():
 <section><h2>伦敦金分时 · {intl_span}（美元/盎司）</h2>
 <div class="hint">数据来自新浪外盘期货分时接口，底层<b>每分钟一个点</b>（图上按 5 分钟取点显示，避免线条过密）。
 图末的<b>蓝点＋数字</b>是当前价；与上方「国际金价」卡片（腾讯行情）互为交叉校验，两者应当一致。
+周末与节假日休市时，这里显示<b>最近一个交易日的完整曲线</b>，标注会变成「最近交易日收盘」。
 周末与节假日休市时，这里显示<b>最近一个交易日的完整曲线</b>，标注会变成「最近交易日收盘」。<br>
 <b>中间那段空白不是丢数据</b>：数据源按「交易日」切分，每天以北京时间 07:00 重新开始，
 23:59 → 次日 07:00 的休市时段本身没有分钟数据，所以曲线在这里断开。
