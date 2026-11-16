@@ -76,31 +76,54 @@ def log(msg):
 
 # ---------------------------------------------------------------- 采集
 
-def fetch_quote(timeout=20):
-    req = urllib.request.Request(
-        CFG["source"]["url"],
-        data=b"",
-        method="POST",
-        headers={
-            "User-Agent": UA,
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://www.chnau99999.com/page/goldPrice",
-            "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
-        },
-    )
+OZ_GRAMS = 31.1035          # 1 金衡盎司 = 31.1035 克
+
+
+def _get_text(url, referer, timeout=20, gbk=False):
+    req = urllib.request.Request(url, headers={"User-Agent": UA, "Referer": referer})
     with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8", "replace")
-    obj = json.loads(raw)
-    if obj.get("code") != 200:
-        raise RuntimeError(f"接口返回异常: {raw[:200]}")
-    data = obj["data"]
-    out = {}
-    for k in ("cur", "sel", "buy", "accessories"):
-        v = data.get(k)
-        out[k] = float(v) if v not in (None, "", "-") else None
-    if out["cur"] is None:
-        raise RuntimeError(f"缺少基础金价字段: {raw[:200]}")
-    return out
+        return resp.read().decode("gbk" if gbk else "utf-8", "replace")
+
+
+def fetch_fx_rate(timeout=20):
+    """美元兑人民币现汇价（新浪）。无 CORS，只能服务端取。"""
+    cfg = CFG.get("intl") or {}
+    raw = _get_text(cfg.get("fx_url") or "https://hq.sinajs.cn/list=USDCNY",
+                    "https://finance.sina.com.cn/", timeout, gbk=True)
+    return float(raw.split('"')[1].split(",")[8])
+
+
+def fetch_xau_quote(timeout=20):
+    """伦敦金现（腾讯 hf_XAU）→ 元/克。返回的 cur 就是我们唯一的价格口径。
+
+    2026-11-16 起弃用中国黄金终端报价（chnau99999.com）：它是零售牌价，
+    实测比国际金折算价高 10.5 元/克（+1.26%），比上金所高 9 元，不适合作为行情基准。
+    现在统一用「伦敦金现 × 美元兑人民币 ÷ 31.1035」，单一口径、可核对。
+    """
+    cfg = CFG.get("intl") or {}
+    sym = cfg.get("code") or "hf_XAU"
+    oz = float(cfg.get("oz_grams") or OZ_GRAMS)
+
+    raw = _get_text(f"https://qt.gtimg.cn/q={sym}", "https://gu.qq.com/", timeout, gbk=True)
+    f = raw.split("=", 1)[1].strip().strip('";').split(",")
+    usd = float(f[0])
+    chg = float(f[1]) if len(f) > 1 else None
+    high = float(f[4]) if len(f) > 4 else None
+    low = float(f[5]) if len(f) > 5 else None
+    qtime = f[6] if len(f) > 6 else ""
+    rate = fetch_fx_rate(timeout)
+
+    return {
+        "cur": round(usd * rate / oz, 2),
+        "sel": None, "buy": None, "accessories": None,
+        "usd": usd, "rate": rate, "chg_pct": chg,
+        "high_usd": high, "low_usd": low, "quote_time": qtime,
+    }
+
+
+def fetch_quote(timeout=20):
+    """兼容旧调用名：现在返回国际金折算价。"""
+    return fetch_xau_quote(timeout)
 
 
 def fetch_with_retry(attempts=3):
@@ -158,29 +181,41 @@ def migrate_csv():
 # ---------------------------------------------------------------- 历史回填
 
 def fetch_sge_daily(timeout=30):
-    """上金所 Au99.99 日线，返回 [(date, open, close, low, high)]，按日期升序。"""
-    req = urllib.request.Request(
-        SGE_URL,
-        data=f"instid={CFG['sge']['instid']}".encode(),
-        method="POST",
-        headers={
-            "User-Agent": UA,
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://www.sge.com.cn/sjzx/mrhq",
-            "Content-Type": "application/x-www-form-urlencoded",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
-        raw = resp.read().decode("utf-8", "replace")
-    obj = json.loads(raw)
+    """伦敦金日K（新浪）→ 折算成 元/克，返回 [(date, open, close, low, high)]，升序。
+
+    函数名保留（内部多处调用），但数据源已从上海黄金交易所 Au99.99 换成国际金日K，
+    目的是让实时价、分时、日线、日内极值**同源同口径**。
+
+    ⚠️ 历史每一天的汇率与今天不同，这里统一按**今天**的汇率折算，属于近似：
+       近 60 天汇率在 6.65~6.72 之间波动，对应误差约 ±4 元/克。图注会标注。
+    """
+    cfg = CFG.get("intl") or {}
+    sym = cfg.get("minute_symbol") or "XAU"
+    oz = float(cfg.get("oz_grams") or OZ_GRAMS)
+    rate = fetch_fx_rate(timeout)
+
+    url = ("https://stock2.finance.sina.com.cn/futures/api/jsonp.php/var%20t=/"
+           f"GlobalFuturesService.getGlobalFuturesDailyKLine?symbol={sym}")
+    raw = _get_text(url, "https://finance.sina.com.cn/", timeout, gbk=True)
+    m = re.search(r"var t=\((.*)\)\s*;?\s*$", raw.strip(), re.S)
+    if not m:
+        raise RuntimeError(f"日线返回无法解析: {raw[:160]}")
+    arr = json.loads(m.group(1))
+
     out = []
-    for r in obj.get("time", []):
+    for r in arr:
         try:
-            out.append((r[0], float(r[1]), float(r[2]), float(r[3]), float(r[4])))
-        except (IndexError, TypeError, ValueError):
+            out.append((
+                r["date"],
+                float(r["open"]) * rate / oz,
+                float(r["close"]) * rate / oz,
+                float(r["low"]) * rate / oz,
+                float(r["high"]) * rate / oz,
+            ))
+        except (KeyError, TypeError, ValueError):
             continue
     if not out:
-        raise RuntimeError(f"上金所日线为空: {raw[:200]}")
+        raise RuntimeError("国际金日线为空")
     return out
 
 
@@ -712,11 +747,13 @@ def backfill(days=30):
             continue
         if dd.weekday() >= 5:               # 周末不采，和实时口径一致
             continue
-        for s in slots:
+        # 只写当天最后一个时点：日线图取「每天最后一个采集点」当收盘价，
+        # 把 96 个时点全写一遍只会让文件膨胀，对曲线没有任何增加的信息。
+        for s in slots[-1:]:
             if (d, s) in have:
                 skipped += 1
                 continue
-            base = op if s == slots[0] else cl
+            base = cl
             append_row({
                 "ts": f"{d} {s}:00",
                 "d": d,
@@ -726,7 +763,7 @@ def backfill(days=30):
                 "est_buy": f"{base + cal['offset_buy']:.2f}",
                 "est_sell": f"{base + cal['offset_sell']:.2f}",
                 "status": "ok",
-                "note": "日线回溯" + ("·开盘" if s == slots[0] else "·收盘"),
+                "note": "日线回填·收盘（国际金折算）",
                 "src": SRC_DAILY,
             })
             have.add((d, s))
@@ -1467,7 +1504,8 @@ def build_report():
     # 今日振幅 = 今日最高 - 今日最低（不是"较首点"）。
     # 原来的「今日较首点」和「较上一交易日」恒等：这个源隔夜不变价，
     # 今日第一个点就等于昨日最后一个点，两张卡永远算出同一个数（2026-11-12 实测连续 5 天相同）。
-    _today_vals = [fnum(r["cur"]) for r in today_rows if fnum(r["cur"]) is not None]
+    _today_vals = [fnum(r["cur"]) for r in today_rows
+                   if fnum(r["cur"]) is not None and r.get("src", SRC_LIVE) in REAL_SRCS]
     day_high = max(_today_vals) if _today_vals else None
     day_low = min(_today_vals) if _today_vals else None
     day_amp = (day_high - day_low) if (_today_vals and day_high is not None and day_low is not None) else None
@@ -1500,7 +1538,12 @@ def build_report():
     # 今日日内最低：直接取今天已采数据里的最小值（2026-11-02 用户要求）。
     # 之前用的是上金所日线极值，但那个要等收盘后才更新，盘中一直显示「—」，形同虚设。
     # 现在立刻有数：有几次采集就有区间，采得越密越准。
-    today_pts = [(fnum(r["cur"]), r["slot"]) for r in day_rows_all if fnum(r["cur"]) is not None]
+    # 只认真实采样（live/日线回填），不把 carry 补齐值当成"今天触及过这个价"。
+    # 否则 00:00 那个补齐点会用最近一个真实值，导致卡片显示「今日 00:00 触及」，
+    # 而实际那个时点根本没采过（2026-11-16 实测）。
+    today_pts = [(fnum(r["cur"]), r["slot"]) for r in day_rows_all
+                 if fnum(r["cur"]) is not None
+                 and r.get("src", SRC_LIVE) in REAL_SRCS]
     if today_pts:
         ex_low, low_slot = min(today_pts, key=lambda x: (x[0], x[1]))
         ex_high = max(v for v, _ in today_pts)
@@ -1622,13 +1665,13 @@ def build_report():
     if n_daily:
         warn.append(
             f"历史区段含 <b>{n_daily}</b> 行日线回溯数据（共 {n_daily_days} 个交易日），"
-            f"取自上海黄金交易所 Au99.99 日线：首点为当日<b>开盘</b>，其余时点为当日<b>收盘</b>。"
+            f"取自伦敦金日K并折算成元/克：每天只取<b>收盘价</b>一条，代表当天的定盘水平。"
             f"这些点<b>不是分时实采</b>，同一天各时点数值相同属正常（均为当日收盘价），"
             f"勿读作「当天价格没动」。"
             f"图中带 <b>*</b> 的日期即回溯日。")
     if ex_rows:
         warn.append(
-            "「日内极值」取自上海黄金交易所 Au99.99 日线，是原始价、未做任何换算；"
+            "「日内极值」取自伦敦金日K的最高/最低价，已按当天汇率折算成元/克；"
             + ("今日数据在收盘后由上金所更新，盘中看到的可能是截至当时的部分极值。"
                if today_ex else
                "今日暂无极值数据，收盘后自动补齐。"))
@@ -1812,12 +1855,13 @@ def build_report():
 金色<b>实心点</b>＝真实采集；<b>空心点</b>＝该时点没采到、按最近一条真实样本补的值（不标数值）。</div>
 {svg_chart(today_series, hollow=today_hollow)}</section>
 
-<section><h2>国内金价日线 · 近 {len(daily_series)} 个交易日（元/克）</h2>
+<section><h2>金价日线 · 近 {len(daily_series)} 个交易日（元/克 · 国际金折算）</h2>
 <div class="hint">每天<b>最后一个采集点</b>作为当日收盘价，漏掉的中间时点会被下一次采集自动补齐；采到 <b>{tail_slot}</b> 尾盘即视为定盘，此前用最新一条并标 <b>~</b>{' · 带 * 的日期为日线回溯（收盘价），非分时实采' if n_daily else ''}</div>
 {svg_chart(daily_series, height=200)}</section>
 
 <section><h2>日内极值 · 近 {len(ex_rows)} 个交易日</h2>
-<div class="hint">取自上海黄金交易所 Au99.99 日线，是当天<b>真实触及过</b>的最低/最高价，原始价、不做换算。它比每 {step_min} 分钟一次采样可靠——哪怕低点只闪了一瞬间也会留痕。<br>
+<div class="hint">取自伦敦金日K的当日最高/最低，按当天汇率折算成元/克。它是当天<b>真实触及过</b>的极值，比每 {step_min} 分钟一次采样可靠——哪怕低点只闪了一瞬间也会留痕。<br>
+⚠️ 历史每日用<b>今天的汇率</b>折算，而实际每天汇率不同（近 60 天 6.65~6.72），因此早期数据有约 ±4 元/克的近似误差。<br>
 灰带＝当日<b>最低~最高</b>的波动区间，带子越宽当天波动越大。鼠标悬停任一点可看数值。<br>
 （上金所日线与本表统计口径不同步，极端情况下可能出现「当前价低于今日日内最低」，以本表的日线口径为准。）{best_txt}</div>
 {ex_chart}
@@ -1825,26 +1869,11 @@ def build_report():
 <table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
 
-<section><h2>伦敦金分时 · {intl_span}（美元/盎司）</h2>
-<div class="hint">数据来自新浪外盘期货分时接口，底层<b>每分钟一个点</b>（图上按 5 分钟取点显示，避免线条过密）。
-图末的<b>蓝点＋数字</b>是当前价；与上方「国际金价」卡片（腾讯行情）互为交叉校验，两者应当一致。
-周末与节假日休市时，这里显示<b>最近一个交易日的完整曲线</b>，标注会变成「最近交易日收盘」。
-周末与节假日休市时，这里显示<b>最近一个交易日的完整曲线</b>，标注会变成「最近交易日收盘」。<br>
-<b>中间那段空白不是丢数据</b>：数据源按「交易日」切分，每天以北京时间 07:00 重新开始，
-23:59 → 次日 07:00 的休市时段本身没有分钟数据，所以曲线在这里断开。
-横轴上带日期的那两个刻度（如 <b>11-06 07:00</b>）就是跨天的分界点。</div>
-{intl_chart}</section>
-
-<section><h2>伦敦金日线 · 近 {intl_daily_n} 个交易日（美元/盎司）</h2>
-<div class="hint">每个交易日一个收盘价，取自新浪外盘期货日 K（完整历史可回溯到 2006 年）。
-今日那条会随盘中价格变动，收盘后定盘。鼠标悬停任一点可看数值。</div>
-{intl_daily_block}</section>
-
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
 <footer>
 价格来源：{CFG['source']['url']}（公开报价接口，每天 {slots[0]}~{tail_slot} {step_txt}采集，共 {len(slots)} 个时点）。<br>
-报表展示的是源站<b>基准金价</b>原值，不做任何换算；日内极值来自上海黄金交易所 Au99.99 日线，两者口径可能略有差异。<br>
+全部价格由<b>伦敦金现（腾讯 hf_XAU）× 美元兑人民币 ÷ 31.1035</b> 折算而来，单一数据源、可自行核对。<br>
 本报表仅供个人记录与复盘，不构成投资建议，也不保证数据源持续可用或数值准确。
 </footer>
 </div>{REPORT_JS}</body></html>

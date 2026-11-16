@@ -1,13 +1,10 @@
 {
   "source": {
-    "url": "https://www.chnau99999.com/page/board",
-    "name": "中国黄金销售终端报价（chnau99999.com）",
-    "fields": {
-      "cur": "基础金价",
-      "sel": "销售价（客户买入参考）",
-      "buy": "回收价（客户卖出参考）",
-      "accessories": "饰品金价"
-    }
+    "name": "伦敦金现（腾讯行情 hf_XAU）× 美元兑人民币，折算成元/克",
+    "url": "https://qt.gtimg.cn/q=hf_XAU",
+    "fx_url": "https://hq.sinajs.cn/list=USDCNY",
+    "formula": "元/克 = 美元/盎司 × USDCNY ÷ 31.1035",
+    "note": "2026-11-16 起弃用中国黄金终端报价（零售牌价，实测比折算价高约 10 元/克）"
   },
   "_slots_note": "slots 由 slot_step_minutes 生成，不在配置里逐条列出。15 分钟 → 96 个时点；改成 5 就是 288 个，代码自适应。",
   "slot_step_minutes": 15,
@@ -64,9 +61,9 @@
     "note": "dispatch_url 填上代理服务地址（见 worker/dispatch.js）后，「立即采集」会一键触发云端采集；留空则退回跳到 Actions 页面。"
   },
   "files": {
-    "csv": "data/gold_price.csv",
+    "csv": "data/gold_price_xau.csv",
     "report": "report.html",
-    "extremes": "data/sge_extremes.json"
+    "extremes": "data/xau_extremes.json"
   },
   "sge": {
     "instid": "Au99.99",
