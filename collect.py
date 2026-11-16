@@ -1279,6 +1279,55 @@ def svg_multiline(labels, series, ref=None, width=760, height=240, unit="元/克
     return '<div class="legend">' + "".join(items) + "</div>" + "".join(parts)
 
 
+LIVE_JS = r"""<script>
+(function () {
+  var RATE = __RATE__, SPREAD = __SPREAD__, OZ = 31.1035;
+  var dot = document.getElementById('live-dot');
+  if (!RATE) { return; }
+  function set(k, v) {
+    var els = document.querySelectorAll('[data-live="' + k + '"]');
+    for (var i = 0; i < els.length; i++) { els[i].textContent = v; }
+  }
+  function clock() {
+    if (!dot) { return; }
+    var d = new Date();
+    var p = function (n) { return ('0' + n).slice(-2); };
+    dot.textContent = '实时 · ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    dot.className = 'live-dot on';
+  }
+  function tick() {
+    fetch('https://qt.gtimg.cn/q=hf_XAU&_=' + Date.now(), { cache: 'no-store' })
+      .then(function (r) { return r.arrayBuffer(); })
+      .then(function (buf) {
+        var txt;
+        try { txt = new TextDecoder('gbk').decode(buf); }
+        catch (e) { txt = new TextDecoder('utf-8').decode(buf); }
+        var m = txt.match(/="([^"]+)"/);
+        if (!m) { return; }
+        var f = m[1].split(',');
+        var usd = parseFloat(f[0]);
+        if (!isFinite(usd)) { return; }
+        var cny = usd * RATE / OZ;
+        set('usd', usd.toFixed(2));
+        set('cny', cny.toFixed(2));
+        set('cny-fee', (cny + SPREAD).toFixed(2));
+        var chg = parseFloat(f[1]);
+        if (isFinite(chg)) {
+          set('usd-note', '美元/盎司 · ' + (chg >= 0 ? '▲' : '▼') + ' ' + Math.abs(chg).toFixed(2) + '% · ' + f[6]);
+        }
+        var low = parseFloat(f[5]);
+        if (isFinite(low)) { set('usd-low', low.toFixed(2)); }
+        set('cny-note', '实时刷新 · 汇率 ' + RATE.toFixed(4) + '（生成时固定）');
+        clock();
+      })
+      .catch(function () {});
+  }
+  tick();
+  setInterval(tick, 60000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { tick(); } });
+})();
+</script>"""
+
 REPORT_JS = r"""<script>
 (function () {
   var btn = document.getElementById('btn-refresh');
@@ -1748,6 +1797,12 @@ def build_report():
 
     warn_html = "".join(f"<li>{w}</li>" for w in warn)
 
+    # 实时刷新：把构建时的汇率与点差固化进页面，前端每 60 秒直连腾讯行情自行更新
+    _live_rate = intl_rate if intl_rate else 0
+    LIVE_HTML = (LIVE_JS
+                 .replace("__RATE__", f"{_live_rate:.4f}")
+                 .replace("__SPREAD__", f"{fee_spread:.2f}"))
+
     html = f"""<!DOCTYPE html>
 <html lang="zh-CN"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -1761,6 +1816,9 @@ def build_report():
   .wrap{{max-width:860px;margin:0 auto}}
   h1{{font-size:19px;margin:0 0 4px;font-weight:600;letter-spacing:.3px}}
   .sub{{color:var(--muted);font-size:13px;margin-bottom:22px}}
+  .live-dot{{display:inline-block;margin-left:8px;padding:1px 7px;border-radius:9px;
+    font-size:11px;color:var(--muted);border:1px solid #2a3340;vertical-align:middle}}
+  .live-dot.on{{color:#7fd6a6;border-color:#2f5d47;background:#12251c}}
   .cards{{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:20px}}
   .card{{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}}
   .card .k{{color:var(--muted);font-size:12px;letter-spacing:.4px}}
@@ -1824,7 +1882,7 @@ def build_report():
   <div>
     <h1>黄金实时金价</h1>
     <div class="sub" id="meta">数据日 {latest['d'] if latest else today} · 生成于 {datetime.now():%Y-%m-%d %H:%M} ·
-来源 {CFG['source']['name']}</div>
+来源 {CFG['source']['name']}<span id="live-dot" class="live-dot">实时刷新</span></div>
   </div>
   <div class="acts">
     <button class="btn primary" id="btn-refresh" type="button"
@@ -1836,16 +1894,16 @@ def build_report():
 
 <div class="cards">
   <div class="card" id="card-price"><div class="k">实时金价（元/克）</div>
-    <div class="v" id="card-price-val">{fmt(cur_price)}</div>
-    <div class="d">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
+    <div class="v" id="card-price-val" data-live="cny">{fmt(cur_price)}</div>
+    <div class="d" data-live="cny-note">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
   <div class="card"><div class="k">含手续费价（+{fee_spread:.0f}）</div>
-    <div class="v">{fmt(fee_price)}</div>
+    <div class="v" data-live="cny-fee">{fmt(fee_price)}</div>
     <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 中行约数</div></div>
   <div class="card"><div class="k">国际金价（伦敦金）</div>
-    <div class="v">{fmt(intl_usd)}</div>
-    <div class="d">美元/盎司{'' if intl_chg is None else f' · {arrow(intl_chg)} {abs(intl_chg):.2f}%'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
+    <div class="v" data-live="usd">{fmt(intl_usd)}</div>
+    <div class="d" data-live="usd-note">美元/盎司{'' if intl_chg is None else f' · {arrow(intl_chg)} {abs(intl_chg):.2f}%'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
   <div class="card"><div class="k">国际金当日最低</div>
-    <div class="v">{fmt(intl_low_usd)}</div>
+    <div class="v" data-live="usd-low">{fmt(intl_low_usd)}</div>
     <div class="d">美元/盎司{'' if intl_high_usd is None else f' · 高 {fmt(intl_high_usd)}'}</div></div>
   <div class="card"><div class="k">今日振幅</div>
     <div class="v">{fmt(day_amp)}</div>
@@ -1900,7 +1958,7 @@ def build_report():
 全部价格由<b>伦敦金现（腾讯 hf_XAU）× 美元兑人民币 ÷ 31.1035</b> 折算而来，单一数据源、可自行核对。<br>
 本报表仅供个人记录与复盘，不构成投资建议，也不保证数据源持续可用或数值准确。
 </footer>
-</div>{REPORT_JS}</body></html>
+</div>{REPORT_JS}{LIVE_HTML}</body></html>
 """
 
     with open(REPORT_PATH, "w", encoding="utf-8") as f:
