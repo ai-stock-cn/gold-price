@@ -1680,7 +1680,7 @@ def build_report():
     if ex_rows:
         warn.append(
             "「日内极值」取自伦敦金日K的最高/最低价，已按当天汇率折算成元/克；"
-            + ("今日数据在收盘后由上金所更新，盘中看到的可能是截至当时的部分极值。"
+            + ("今日数据在收盘后才完整，盘中看到的是截至当时的极值。"
                if today_ex else
                "今日暂无极值数据，收盘后自动补齐。"))
 
@@ -1876,6 +1876,16 @@ def build_report():
 <details><summary>展开逐日数值表（最低 / 最高 / 收盘）</summary>
 <table><thead><tr><th>日期</th><th style="text-align:right">日内最低</th><th style="text-align:right">日内最高</th><th style="text-align:right">日线收盘</th></tr></thead>
 <tbody>{ext_body}</tbody></table></details></section>
+
+<section><h2>国际金分时 · {intl_span}（美元/盎司）</h2>
+<div class="hint">数据来自新浪外盘期货分时接口，底层<b>每分钟一个点</b>（图上按 5 分钟取点显示）。
+图末的<b>蓝点＋数字</b>是当前价，与上方「国际金价」卡片（腾讯行情）互为交叉校验，两者应当一致。
+周末与节假日休市时显示<b>最近一个交易日的完整曲线</b>，标注会变成「最近交易日收盘」。<br>
+<b>中间那段空白不是丢数据</b>：数据源按「交易日」切分，每天以北京时间 07:00 重新开始，
+23:59 → 次日 07:00 的休市时段本身没有分钟数据，所以曲线在这里断开；
+横轴上带日期的刻度就是跨天分界点。<br>
+这是<b>美元口径</b>的全球金价，和上面「今日分时」「金价日线」的人民币口径互为参照——两者差一个汇率。</div>
+{intl_chart}</section>
 
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
