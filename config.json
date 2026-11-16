@@ -17,7 +17,10 @@
     "20:00": "银行截止",
     "23:00": "夜间收尾"
   },
-  "trading_window": ["00:00", "23:59"],
+  "trading_window": [
+    "00:00",
+    "23:59"
+  ],
   "tail_grace": "23:59",
   "weekdays_only": false,
   "target": {
@@ -28,9 +31,9 @@
   "calibration": {
     "sample_time": "2026-10-30 10:54",
     "basis": "cur",
-    "source_cur_at_sample": 857.70,
-    "source_sel_at_sample": 873.70,
-    "source_buy_at_sample": 854.70,
+    "source_cur_at_sample": 857.7,
+    "source_sel_at_sample": 873.7,
+    "source_buy_at_sample": 854.7,
     "boc_customer_buy": 874.33,
     "boc_customer_sell": 856.73,
     "offset_buy": 16.63,
@@ -52,7 +55,8 @@
   "remote": {
     "url": "https://gold-price.bang325.workers.dev/data",
     "price_url": "https://gold-price.bang325.workers.dev/price",
-    "note": "填 Worker 的 /data 地址（如 https://xxx.workers.dev/data）。填了之后每次采集前会先把云端 15 分钟的点回灌进 CSV。"
+    "note": "云端 Worker 仍按旧口径（中国黄金零售牌价）采集，回灌会把 841 这类值混进国际金折算口径的表里。2026-11-16 起关闭，数据全部由本机直接抓取。",
+    "enabled": false
   },
   "repo": {
     "owner": "ai-stock-cn",

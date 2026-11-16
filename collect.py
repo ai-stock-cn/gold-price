@@ -1541,7 +1541,15 @@ def build_report():
     # 只认真实采样（live/日线回填），不把 carry 补齐值当成"今天触及过这个价"。
     # 否则 00:00 那个补齐点会用最近一个真实值，导致卡片显示「今日 00:00 触及」，
     # 而实际那个时点根本没采过（2026-11-16 实测）。
-    today_pts = [(fnum(r["cur"]), r["slot"]) for r in day_rows_all
+    def _slot_label(r):
+        sl = (r.get("slot") or "").strip()
+        if re.match(r"^\d{2}:\d{2}$", sl):
+            return sl
+        # 手动采集写的是 "手动"，卡片上要显示成实际时刻，否则会出现「今日 手动 触及」
+        ts = (r.get("ts") or "").strip()
+        return ts[11:16] if len(ts) >= 16 else sl
+
+    today_pts = [(fnum(r["cur"]), _slot_label(r)) for r in day_rows_all
                  if fnum(r["cur"]) is not None
                  and r.get("src", SRC_LIVE) in REAL_SRCS]
     if today_pts:
@@ -1914,7 +1922,8 @@ def main():
             sync_extremes()
         elif not args.report and not args.fill_today:
             # 先把云端 Worker 已经采到的点补进来，再决定要不要自己发请求
-            ingest_remote()
+            if (CFG.get("remote") or {}).get("enabled", False):
+                ingest_remote()
             collect(force=args.force, auto=args.auto)
             collect_intl()
             maybe_sync_extremes()
