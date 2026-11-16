@@ -1887,6 +1887,12 @@ def build_report():
 这是<b>美元口径</b>的全球金价，和上面「今日分时」「金价日线」的人民币口径互为参照——两者差一个汇率。</div>
 {intl_chart}</section>
 
+<section><h2>国际金日线 · 近 {intl_daily_n} 个交易日（美元/盎司）</h2>
+<div class="hint">每个交易日一个收盘价，取自新浪外盘期货日 K（完整历史可回溯到 2006 年）。
+今日那条随盘中价格变动，收盘后定盘；鼠标悬停任一点可看数值。<br>
+与上面「金价日线（元/克）」是同一条曲线的两种单位——这里看国际定价，那里看你要付多少钱（差一个汇率）。</div>
+{intl_daily_block}</section>
+
 <section><h2>数据质量与说明</h2><ul>{warn_html}</ul></section>
 
 <footer>
