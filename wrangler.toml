@@ -20,3 +20,14 @@ compatibility_date = "2025-01-01"
 # 时区是 UTC，*/5 与北京时间的整刻对齐（偏移 8 小时是整小时）。
 [triggers]
 crons = ["*/5 * * * *"]
+
+# KV：提醒状态（档位/当日低点/去重计数）+ 30 日高低缓存
+# 之前这个绑定是在面板里加的，2026-11-23 发现被 Deploy Hook 的部署抹掉了，
+# 导致提醒退化成"无记忆"（每次都可能重复推）。写进配置里就不会再丢。
+[[kv_namespaces]]
+binding = "GOLD_KV"
+id = "554b51cff0274abc94c6bd0e5b66a801"
+
+# 允许跨域的前端来源（报表页面点「刷新到最新」时会调这个 Worker）
+[vars]
+ALLOW_ORIGIN = "https://ai-stock-cn.github.io"

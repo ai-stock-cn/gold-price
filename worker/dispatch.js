@@ -122,7 +122,7 @@ async function fetchCnyPrice() {
 /** 近 N 个交易日的高低（结果按日期缓存，一天只拉一次） */
 async function fetchRange(env, days = 30) {
   const { date } = bjNow();
-  const key = `k:${days}d:${date}`;
+  const key = `k2:${days}d:${date}`;   // k2：旧缓存存的是美元区间，换前缀作废
   if (env.GOLD_KV) {
     const cached = await env.GOLD_KV.get(key);
     if (cached) {
@@ -142,13 +142,22 @@ async function fetchRange(env, days = 30) {
   if (!m) throw new Error('日K 解析失败');
   const arr = JSON.parse(m[1]);
   const seg = arr.slice(-days);
-  const lo = Math.min(...seg.map((x) => Number(x.low)));
-  const hi = Math.max(...seg.map((x) => Number(x.high)));
-  const out = { lo, hi };
+  // 这里只存美元原始值，换算成元/克交给调用方（用当时的汇率），
+  // 免得把某一天的汇率固化进缓存。
+  const out = {
+    loUsd: Math.min(...seg.map((x) => Number(x.low))),
+    hiUsd: Math.max(...seg.map((x) => Number(x.high))),
+  };
   if (env.GOLD_KV) {
     await env.GOLD_KV.put(key, JSON.stringify(out), { expirationTtl: 86400 * 2 });
   }
   return out;
+}
+
+/** 美元区间 → 元/克区间（必须用当前汇率，否则比价会错一个量级） */
+function rangeCny(range, rate) {
+  const k = rate / OZ_GRAMS;
+  return { lo: range.loUsd * k, hi: range.hiUsd * k };
 }
 
 /** 推送状态 */
@@ -303,7 +312,7 @@ async function alertTick(env) {
 
   let range;
   try {
-    range = await fetchRange(env);
+    range = rangeCny(await fetchRange(env), price.rate);
   } catch (e) {
     console.log('[alert] 取区间失败 ' + e.message);
     return;
@@ -444,7 +453,7 @@ export default {
       if (url.pathname === '/status') {
         try {
           const price = await fetchCnyPrice();
-          const range = await fetchRange(env);
+          const range = rangeCny(await fetchRange(env), price.rate);
           const state = await loadState(env);
           const rank = ((price.cny - range.lo) / (range.hi - range.lo)) * 100;
           return json(
