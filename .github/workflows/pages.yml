@@ -16,7 +16,6 @@ on:
       - "index.html"
       - ".nojekyll"
       - ".github/workflows/pages.yml"   # 改了这个文件本身也要重新部署一次
-      - ".github/workflows/pages.yml"   # 改了这个文件本身也要重新部署一次
 
 permissions:
   contents: read
@@ -39,7 +38,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment_retry2.outputs.page_url || steps.deployment_retry1.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
       - name: 拉取仓库
         uses: actions/checkout@v4
@@ -62,6 +61,38 @@ jobs:
         with:
           path: _site
 
+      # 部署为什么要重试：actions/deploy-pages 偶尔在「上传站点」刚完成、
+      # 制品的元数据还没索引好时就去查，报
+      #   No artifacts named "github-pages" were found for this workflow run
+      # 实测 2026-11-22/23 的 150 次部署里有 22 次这样挂掉（14.7%）。
+      # 这类失败是瞬时的——隔几秒再查就能找到，所以直接重试最有效。
       - name: 部署
         id: deployment
+        continue-on-error: true
         uses: actions/deploy-pages@v4
+
+      - name: 等待制品索引
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 10
+
+      - name: 部署（重试 1）
+        id: deployment_retry1
+        if: steps.deployment.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/deploy-pages@v4
+
+      - name: 等待制品索引（2）
+        if: steps.deployment.outcome == 'failure' && steps.deployment_retry1.outcome == 'failure'
+        run: sleep 20
+
+      - name: 部署（重试 2）
+        id: deployment_retry2
+        if: steps.deployment.outcome == 'failure' && steps.deployment_retry1.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+
+      - name: 汇总
+        if: always()
+        run: |
+          echo "首次: ${{ steps.deployment.outcome }}"
+          echo "重试1: ${{ steps.deployment_retry1.outcome }}"
+          echo "重试2: ${{ steps.deployment_retry2.outcome }}"
