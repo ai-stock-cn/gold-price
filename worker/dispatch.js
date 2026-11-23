@@ -218,7 +218,7 @@ async function pushPlus(env, title, content) {
       token: env.PUSHPLUS_TOKEN,
       title,
       content,
-      template: 'markdown',
+      template: 'txt',
     }),
   });
   const text = await resp.text();
@@ -232,16 +232,28 @@ async function pushPlus(env, title, content) {
   return { ok, detail: text.slice(0, 200) };
 }
 
-/** 组一条提醒正文 */
+/**
+ * 组消息正文：一条事实一行，尽量短。
+ * 微信模板消息不渲染 markdown，也不可靠地吃 \n —— 所以：
+ *   · 不用 ** 加粗（会原样显示）
+ *   · 每行控制在一屏宽度内，宁可多几行，别让它自己折行
+ */
 function bodyOf(p, range, rank, extra) {
   const lines = [];
-  lines.push(`**现价 ${round2(p.cny).toFixed(2)} 元/克**（含手续费 ${round2(p.cny + FEE_SPREAD).toFixed(2)}）`);
-  lines.push(`近 30 日区间 ${range.lo.toFixed(2)} ~ ${range.hi.toFixed(2)} → 分位 **${rank.toFixed(1)}%**`);
-  lines.push(`国际金 ${p.usd.toFixed(2)} 美元/盎司 · ${p.qtime || ''}`);
-  if (extra) lines.push('');
-  if (extra) lines.push(extra);
+  lines.push(`现价 ${round2(p.cny).toFixed(2)} 元/克`);
+  lines.push(`含手续费 ${round2(p.cny + FEE_SPREAD).toFixed(2)}`);
+  lines.push(`分位 ${rank.toFixed(1)}%`);
+  lines.push(`区间 ${range.lo.toFixed(2)}~${range.hi.toFixed(2)}`);
+  lines.push(`国际金 ${p.usd.toFixed(0)} 美元`);
+  lines.push(`更新 ${(p.qtime || '').slice(0, 5) || '—'}`);
+  if (extra) {
+    lines.push('');
+    for (const l of String(extra).split('\n')) {
+      if (l.trim()) lines.push(l);
+    }
+  }
   lines.push('');
-  lines.push(`距 30 日最低还有 ${(p.cny - range.lo).toFixed(2)} 元/克（${(((p.cny - range.lo) / p.cny) * 100).toFixed(2)}%）`);
+  lines.push(`距30日最低 ${(p.cny - range.lo).toFixed(2)} 元`);
   return lines.join('\n');
 }
 
@@ -266,7 +278,7 @@ function decide(price, range, state, at) {
     const skipped = crossed.filter((L) => L > lowest);
     const next = PRICE_LEVELS.filter((L) => L < lowest).sort((a, b) => b - a)[0];
     const extra =
-      `**跌破 ${lowest} 元/克**` +
+      `跌破 ${lowest} 元/克` +
       (skipped.length ? `（一次越过 ${skipped.join(' / ')}）` : '') +
       (next ? `\n下一档 ${next}，距现价 ${(price.cny - next).toFixed(2)} 元` : '');
     return {
@@ -307,13 +319,17 @@ function digest(price, range, state, rank) {
   if (range.prevClose) {
     const d = price.cny - range.prevClose;
     const pct = (d / range.prevClose) * 100;
-    parts.push(`较昨收 ${d >= 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(2)}（${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%）`);
+    parts.push(`较昨收 ${d >= 0 ? '▲' : '▼'}${Math.abs(d).toFixed(2)}`);
+    parts.push(`涨跌 ${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`);
   }
   if (state.minToday !== null) {
     parts.push(`今日最低 ${state.minToday.toFixed(2)}`);
   }
   const next = PRICE_LEVELS.filter((L) => L < price.cny).sort((a, b) => b - a)[0];
-  if (next) parts.push(`下一档 ${next}（还差 ${(price.cny - next).toFixed(2)} 元）`);
+  if (next) {
+    parts.push(`下一档 ${next}`);
+    parts.push(`还差 ${(price.cny - next).toFixed(2)} 元`);
+  }
   return bodyOf(price, range, rank, parts.join('\n'));
 }
 
