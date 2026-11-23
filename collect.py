@@ -1399,9 +1399,11 @@ REPORT_JS = r"""<script>
         return fetch(priceUrl, { cache: 'no-store', mode: 'cors' })
           .then(function (r) { return r.json(); })
           .then(function (d) {
-            if (d && d.ok && d.price && d.price.cur != null) {
-              bumpPrice(d.price.cur);
-              say('实时金价 ' + Number(d.price.cur).toFixed(2)
+            var pv = (d && d.price && d.price.cny != null) ? d.price.cny
+                   : (d && d.price && d.price.cur != null) ? d.price.cur : null;
+            if (pv != null) {
+              bumpPrice(pv);
+              say('实时金价 ' + Number(pv).toFixed(2)
                   + '（云端现抓 ' + String(d.at).slice(11, 16) + '）', false);
             }
           })

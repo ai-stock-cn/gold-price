@@ -453,7 +453,11 @@ export default {
       if (url.pathname === '/price') {
         try {
           const p = await fetchCnyPrice();
-          return json({ ok: true, at: bjNow().ts, cny: round2(p.cny), usd: p.usd, rate: p.rate }, 200, cors);
+          // cur 是给旧版页面的兼容字段（同一个数：元/克）
+          return json(
+            { ok: true, at: bjNow().ts, cur: round2(p.cny), cny: round2(p.cny), usd: p.usd, rate: p.rate },
+            200, cors
+          );
         } catch (e) {
           return json({ ok: false, error: String((e && e.message) || e) }, 502, cors);
         }
