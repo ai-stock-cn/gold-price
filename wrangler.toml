@@ -9,11 +9,13 @@ compatibility_date = "2025-01-01"
 
 # 环境变量请在 Cloudflare 面板的 Settings → Variables and Secrets 里配置，
 # 不要写进这个文件（会被提交到公开仓库）：
-#   GH_TOKEN      Secret
-#   ALLOW_ORIGIN  Text
+#   GH_TOKEN        Secret（可选，用于触发 GitHub 重建报表）
+#   ALLOW_ORIGIN    Text
+#   PUSHPLUS_TOKEN  Secret（低位提醒推送到微信；不配就不推）
 
-# 定时触发器：每 15 分钟直接调一次 GitHub workflow_dispatch。
-# 这是真正可靠的 15 分钟来源 —— GitHub 自己的 schedule 被节流到 3~7 小时一次。
-# 时区是 UTC，但 */15 与北京时间的整点对齐（偏移 8 小时是整小时）。
+# 定时触发器：每 5 分钟一次。
+#   · 每次都跑「低位提醒」判断（价格 5 分钟粒度，够抓住日内低点）
+#   · 只有整 15 分钟才调 GitHub workflow_dispatch（避免 Actions 被刷成 3 倍）
+# 时区是 UTC，*/5 与北京时间的整刻对齐（偏移 8 小时是整小时）。
 [triggers]
-crons = ["*/15 * * * *"]
+crons = ["*/5 * * * *"]
