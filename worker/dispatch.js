@@ -277,10 +277,13 @@ function decide(price, range, state, at) {
     const lowest = Math.min(...crossed);
     const skipped = crossed.filter((L) => L > lowest);
     const next = PRICE_LEVELS.filter((L) => L < lowest).sort((a, b) => b - a)[0];
-    const extra =
-      `跌破 ${lowest} 元/克` +
-      (skipped.length ? `（一次越过 ${skipped.join(' / ')}）` : '') +
-      (next ? `\n下一档 ${next}，距现价 ${(price.cny - next).toFixed(2)} 元` : '');
+    const lines = [`跌破 ${lowest} 元/克`];
+    if (skipped.length) lines.push(`一次越过 ${skipped.join(' ')}`);
+    if (next) {
+      lines.push(`下一档 ${next}`);
+      lines.push(`距现价 ${(price.cny - next).toFixed(2)} 元`);
+    }
+    const extra = lines.join('\n');
     return {
       type: 'level',
       title: `💰 金价跌破 ${lowest}`,
@@ -304,7 +307,7 @@ function decide(price, range, state, at) {
       title: '📈 低点后反弹',
       content: bodyOf(
         price, range, rank,
-        `从低点 ${state.lowValue.toFixed(2)} 反弹 ${up.toFixed(2)}%，可能企稳。`
+        [`低点 ${state.lowValue.toFixed(2)}`, `已反弹 ${up.toFixed(2)}%`, '可能企稳'].join('\n')
       ),
       rank,
     };
