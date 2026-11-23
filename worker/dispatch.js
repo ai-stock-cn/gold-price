@@ -44,12 +44,24 @@ const DEFAULTS = {
 };
 
 // 提醒口径
-const TIER_LOW = 10; // 分位 ≤10% 提示「进入低位区」
-const TIER_BOTTOM = 5; // 分位 ≤5% 提示「接近 30 日最低」
-const REBOUND_PCT = 0.5; // 从低点反弹 ≥0.5% 视为企稳
-const MAX_ALERTS_PER_DAY = 6; // 每天主动提醒上限（防止下跌途中刷屏）
-const COOLDOWN_MS = 90 * 60 * 1000; // 任意两条提醒至少间隔 90 分钟
-const SUMMARY_HHMM = '19:30'; // 每日简报（北京时间，放在推送窗口内）
+const REBOUND_PCT = 0.5;      // 从低点反弹 ≥0.5% 视为企稳
+const MAX_ALERTS_PER_DAY = 12; // 每天主动提醒上限（不含简报）
+const COOLDOWN_MS = 30 * 60 * 1000; // 任意两条提醒至少间隔 30 分钟
+
+// 定点价位：770 / 766 / 760 / 752 / 745，之后每 5 元一档直到 600
+// 跌破哪一档就提醒一次，同一档当天只推一次（避免反复刷）
+const PRICE_LEVELS = (() => {
+  const head = [770, 766, 760, 752, 745];
+  const tail = [];
+  for (let p = 740; p >= 600; p -= 5) tail.push(p);
+  return head.concat(tail);
+})();
+
+// 每小时简报：09:00–19:00 整点 + 19:30 收尾
+const SUMMARY_SLOTS = [
+  '09:00', '10:00', '11:00', '12:00', '13:00', '14:00',
+  '15:00', '16:00', '17:00', '18:00', '19:00', '19:30',
+];
 
 // 推送时间窗：周一至周五 07:00–20:00（北京时间）。窗外一律静默，不推也不改状态。
 const PUSH_WINDOW = { start: 7 * 60, end: 20 * 60, weekdays: [1, 2, 3, 4, 5] };
@@ -147,6 +159,8 @@ async function fetchRange(env, days = 30) {
   const out = {
     loUsd: Math.min(...seg.map((x) => Number(x.low))),
     hiUsd: Math.max(...seg.map((x) => Number(x.high))),
+    // 倒数第二个交易日的收盘（昨天的收盘价），用于"较昨收"
+    prevCloseUsd: seg.length >= 2 ? Number(seg[seg.length - 2].close) : null,
   };
   if (env.GOLD_KV) {
     await env.GOLD_KV.put(key, JSON.stringify(out), { expirationTtl: 86400 * 2 });
@@ -157,21 +171,25 @@ async function fetchRange(env, days = 30) {
 /** 美元区间 → 元/克区间（必须用当前汇率，否则比价会错一个量级） */
 function rangeCny(range, rate) {
   const k = rate / OZ_GRAMS;
-  return { lo: range.loUsd * k, hi: range.hiUsd * k };
+  return {
+    lo: range.loUsd * k,
+    hi: range.hiUsd * k,
+    prevClose: range.prevCloseUsd ? range.prevCloseUsd * k : null,
+  };
 }
 
 /** 推送状态 */
 async function loadState(env) {
   const empty = {
     date: '',
-    tier: 0,
     minToday: null,
     lowAt: 0,
     lowValue: null,
     alerts: 0,
     lastAlertAt: 0,
     flags: [],
-    lastSummaryDate: '',
+    hitLevels: [],   // 今天已经提醒过的价位档（防止同一档反复推）
+    summaries: [],   // 今天已经发过的简报时点（'15:00' 这类）
   };
   if (!env.GOLD_KV) return empty;
   try {
@@ -233,59 +251,70 @@ function bodyOf(p, range, rank, extra) {
  */
 function decide(price, range, state, at) {
   const rank = ((price.cny - range.lo) / (range.hi - range.lo)) * 100;
-  const tier = rank <= TIER_BOTTOM ? 2 : rank <= TIER_LOW ? 1 : 0;
 
   const canPush =
     state.alerts < MAX_ALERTS_PER_DAY &&
     at - (state.lastAlertAt || 0) > COOLDOWN_MS;
 
-  // ① 分位破档（往下走才推，回升不推）
-  if (tier > state.tier && tier > 0 && canPush) {
-    const label = tier === 2 ? '接近 30 日最低' : '进入 30 日低位区';
-    const mark = tier === 2 ? '⚠️' : '🟡';
+  // ① 跌破定点价位：只推「这次新跌破的最低那一档」，把它上面的档一并标记已推，
+  //    避免一次跳空触发好几条（比如从 770 直接砸到 758，只推 760 这一条）。
+  const crossed = PRICE_LEVELS.filter(
+    (L) => price.cny <= L && !state.hitLevels.includes(L)
+  );
+  if (crossed.length && canPush) {
+    const lowest = Math.min(...crossed);
+    const skipped = crossed.filter((L) => L > lowest);
+    const next = PRICE_LEVELS.filter((L) => L < lowest).sort((a, b) => b - a)[0];
+    const extra =
+      `**跌破 ${lowest} 元/克**` +
+      (skipped.length ? `（一次越过 ${skipped.join(' / ')}）` : '') +
+      (next ? `\n下一档 ${next}，距现价 ${(price.cny - next).toFixed(2)} 元` : '');
     return {
-      type: 'tier' + tier,
-      title: `${mark} 黄金${label}`,
-      content: bodyOf(price, range, rank, `**${label}**——分位跌破 ${tier === 2 ? TIER_BOTTOM : TIER_LOW}%。`),
+      type: 'level',
+      title: `💰 金价跌破 ${lowest}`,
+      content: bodyOf(price, range, rank, extra),
       rank,
-      tier,
+      levels: crossed,
     };
   }
 
-  // ② 创当日新低（当天第一次跌破前低时提示）
-  if (state.minToday !== null && price.cny < state.minToday - 0.01 && canPush &&
-      !state.flags.includes('newlow' + at_date())) {
-    return {
-      type: 'newlow',
-      title: '📉 黄金创当日新低',
-      content: bodyOf(price, range, rank, `跌破此前当日最低 ${state.minToday.toFixed(2)}，现 ${round2(price.cny).toFixed(2)}。`),
-      rank,
-      tier,
-    };
-  }
-
-  // ③ 反弹确认：从最近低点反弹 ≥0.5%，且低点是 24 小时内的
+  // ② 反弹确认：从 24 小时内低点反弹 ≥0.5%（底部只有反弹后才算确认）
   if (
     state.lowValue &&
     at - (state.lowAt || 0) < 24 * 3600 * 1000 &&
     price.cny >= state.lowValue * (1 + REBOUND_PCT / 100) &&
-    !state.flags.includes('rebound') &&
+    !state.flags.includes('rebound' + at_date()) &&
     canPush
   ) {
     const up = ((price.cny - state.lowValue) / state.lowValue) * 100;
     return {
       type: 'rebound',
-      title: '📈 黄金低点后反弹',
+      title: '📈 低点后反弹',
       content: bodyOf(
         price, range, rank,
-        `从低点 ${state.lowValue.toFixed(2)} 反弹 ${up.toFixed(2)}%，可能企稳——低点只有反弹后才算确认。`
+        `从低点 ${state.lowValue.toFixed(2)} 反弹 ${up.toFixed(2)}%，可能企稳。`
       ),
       rank,
-      tier,
     };
   }
 
   return null;
+}
+
+/** 整点简报：现价 / 分位 / 今日区间 / 较昨收 / 最近的下一档 */
+function digest(price, range, state, rank) {
+  const parts = [];
+  if (range.prevClose) {
+    const d = price.cny - range.prevClose;
+    const pct = (d / range.prevClose) * 100;
+    parts.push(`较昨收 ${d >= 0 ? '▲' : '▼'} ${Math.abs(d).toFixed(2)}（${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%）`);
+  }
+  if (state.minToday !== null) {
+    parts.push(`今日最低 ${state.minToday.toFixed(2)}`);
+  }
+  const next = PRICE_LEVELS.filter((L) => L < price.cny).sort((a, b) => b - a)[0];
+  if (next) parts.push(`下一档 ${next}（还差 ${(price.cny - next).toFixed(2)} 元）`);
+  return bodyOf(price, range, rank, parts.join('\n'));
 }
 
 function at_date() {
@@ -326,7 +355,8 @@ async function alertTick(env) {
     state.minToday = null;
     state.alerts = 0;
     state.flags = [];
-    // tier 不重置：仍在低位区就不该重复播报
+    state.hitLevels = [];
+    state.summaries = [];
   }
 
   // 记录当日最低 & 最近低点
@@ -336,25 +366,16 @@ async function alertTick(env) {
     state.lowValue = round2(price.cny);
   }
 
-  // 每日简报（22:00 之后第一次 tick）
-  if (now.hhmm >= SUMMARY_HHMM && state.lastSummaryDate !== now.date) {
-    state.lastSummaryDate = now.date;
+  // 整点简报（09:00–19:00 每小时 + 19:30），不占提醒额度
+  if (SUMMARY_SLOTS.includes(now.hhmm) && !state.summaries.includes(now.hhmm)) {
+    state.summaries.push(now.hhmm);
     const rank = ((price.cny - range.lo) / (range.hi - range.lo)) * 100;
-    await pushPlus(
-      env,
-      '📊 黄金今日简报',
-      bodyOf(
-        price, range, rank,
-        `今日最低 ${state.minToday.toFixed(2)}，当前较最低 ${(((price.cny - state.minToday) / state.minToday) * 100).toFixed(2)}%。`
-      )
-    );
-    console.log(`[alert] summary pushed ${now.ts}`);
+    await pushPlus(env, `📊 ${now.hhmm} 金价简报`, digest(price, range, state, rank));
+    console.log(`[alert] summary ${now.hhmm}`);
   }
 
   const hit = decide(price, range, state, at);
   if (!hit) {
-    state.tier = ((price.cny - range.lo) / (range.hi - range.lo)) * 100 <= TIER_BOTTOM ? 2 :
-                 ((price.cny - range.lo) / (range.hi - range.lo)) * 100 <= TIER_LOW ? 1 : 0;
     await saveState(env, state);
     return;
   }
@@ -363,9 +384,10 @@ async function alertTick(env) {
   if (r.ok) {
     state.alerts += 1;
     state.lastAlertAt = at;
-    state.tier = hit.tier !== undefined ? hit.tier : state.tier;
-    if (hit.type === 'newlow') state.flags.push('newlow' + now.date);
-    if (hit.type === 'rebound') state.flags.push('rebound');
+    if (hit.type === 'level' && hit.levels) {
+      state.hitLevels = state.hitLevels.concat(hit.levels);
+    }
+    if (hit.type === 'rebound') state.flags.push('rebound' + now.date);
     console.log(`[alert] pushed ${hit.type} ${now.ts}`);
   }
   await saveState(env, state);
@@ -466,7 +488,9 @@ export default {
               rate: price.rate,
               range: { lo: round2(range.lo), hi: round2(range.hi) },
               rank: Math.round(rank * 10) / 10,
-              tier: state.tier,
+              hitLevels: state.hitLevels,
+              nextLevel: PRICE_LEVELS.filter((L) => L < price.cny).sort((a, b) => b - a)[0] || null,
+              summariesToday: state.summaries,
               alertsToday: state.alerts,
               minToday: state.minToday,
             },
