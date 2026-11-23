@@ -49,7 +49,10 @@ const TIER_BOTTOM = 5; // 分位 ≤5% 提示「接近 30 日最低」
 const REBOUND_PCT = 0.5; // 从低点反弹 ≥0.5% 视为企稳
 const MAX_ALERTS_PER_DAY = 6; // 每天主动提醒上限（防止下跌途中刷屏）
 const COOLDOWN_MS = 90 * 60 * 1000; // 任意两条提醒至少间隔 90 分钟
-const SUMMARY_HHMM = '22:00'; // 每日简报（北京时间）
+const SUMMARY_HHMM = '19:30'; // 每日简报（北京时间，放在推送窗口内）
+
+// 推送时间窗：周一至周五 07:00–20:00（北京时间）。窗外一律静默，不推也不改状态。
+const PUSH_WINDOW = { start: 7 * 60, end: 20 * 60, weekdays: [1, 2, 3, 4, 5] };
 
 /** 北京时间 */
 function bjNow() {
@@ -62,6 +65,16 @@ function bjNow() {
 }
 
 const round2 = (v) => Math.round(v * 100) / 100;
+
+/** 当前是否在推送时间窗内（周一至周五 07:00–20:00，北京时间） */
+function inPushWindow(now) {
+  const iso = new Date(Date.now() + 8 * 3600 * 1000); // 用 UTC 字段读北京时间
+  const dow = iso.getUTCDay(); // 0=周日
+  const minutes = iso.getUTCHours() * 60 + iso.getUTCMinutes();
+  return PUSH_WINDOW.weekdays.includes(dow) &&
+         minutes >= PUSH_WINDOW.start &&
+         minutes < PUSH_WINDOW.end;
+}
 
 /**
  * 抓伦敦金现 + 汇率，折算成元/克。
@@ -274,6 +287,11 @@ function at_date() {
 async function alertTick(env) {
   const at = Date.now();
   const now = bjNow();
+
+  // 窗外（夜间 + 周末）直接返回：不取数、不推、不改状态
+  if (!inPushWindow(now)) {
+    return;
+  }
 
   let price;
   try {
@@ -492,4 +510,4 @@ export default {
 };
 
 // 供离线单测使用（Workers 运行时忽略额外的具名导出）
-export { decide, bodyOf };
+export { decide, bodyOf, inPushWindow };
