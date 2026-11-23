@@ -253,7 +253,8 @@ function bodyOf(p, range, rank, extra) {
     }
   }
   lines.push('');
-  lines.push(`距30日最低 ${(p.cny - range.lo).toFixed(2)} 元`);
+  lines.push(`30日最低 ${range.lo.toFixed(2)}`);
+  lines.push(`距最低 ${(p.cny - range.lo).toFixed(2)} 元`);
   return lines.join('\n');
 }
 
