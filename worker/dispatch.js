@@ -241,7 +241,7 @@ async function pushPlus(env, title, content) {
 function bodyOf(p, range, rank, extra) {
   const lines = [];
   lines.push(`现价 ${round2(p.cny).toFixed(2)} 元/克`);
-  lines.push(`含手续费 ${round2(p.cny + FEE_SPREAD).toFixed(2)}`);
+  lines.push(`中行积存金 ${round2(p.cny + FEE_SPREAD).toFixed(2)}`);
   lines.push(`分位 ${rank.toFixed(1)}%`);
   lines.push(`区间 ${range.lo.toFixed(2)}~${range.hi.toFixed(2)}`);
   lines.push(`国际金 ${p.usd.toFixed(0)} 美元`);

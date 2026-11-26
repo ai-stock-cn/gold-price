@@ -1898,9 +1898,9 @@ def build_report():
   <div class="card" id="card-price"><div class="k">实时金价（元/克）</div>
     <div class="v" id="card-price-val" data-live="cny">{fmt(cur_price)}</div>
     <div class="d" data-live="cny-note">{'今日' if latest_is_today else '最近一次'} · {latest['ts'][11:16] if latest else '—'} 采集</div></div>
-  <div class="card"><div class="k">含手续费价（+{fee_spread:.0f}）</div>
+  <div class="card"><div class="k">中行积存金</div>
     <div class="v" data-live="cny-fee">{fmt(fee_price)}</div>
-    <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 中行约数</div></div>
+    <div class="d">实时金价 + 点差 {fee_spread:.0f} 元/克 · 估算</div></div>
   <div class="card"><div class="k">国际金价（伦敦金）</div>
     <div class="v" data-live="usd">{fmt(intl_usd)}</div>
     <div class="d" data-live="usd-note">美元/盎司{'' if intl_chg is None else f' · {arrow(intl_chg)} {abs(intl_chg):.2f}%'}{'' if not intl_qtime else f' · {intl_qtime}'}</div></div>
